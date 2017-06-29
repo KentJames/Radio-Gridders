@@ -1,0 +1,14 @@
+taskname           = "exportfits"
+imagename          =  "Gaussian.im"
+fitsimage          =  "Gaussian.fits"
+velocity           =  False
+optical            =  False
+bitpix             =  -32
+minpix             =  0
+maxpix             =  -1
+overwrite          =  True
+dropstokes         =  False
+stokeslast         =  True
+history            =  True
+dropdeg            =  False
+#exportfits(imagename="Gaussian.im",fitsimage="Gaussian.fits",velocity=False,optical=False,bitpix=-32,minpix=0,maxpix=-1,overwrite=True,dropstokes=False,stokeslast=True,history=True,dropdeg=False)

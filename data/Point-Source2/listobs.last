@@ -1,0 +1,20 @@
+taskname           = "listobs"
+vis                =  "FITS_list/FITS_list.vla.a.ms"
+selectdata         =  True
+spw                =  ""
+field              =  ""
+antenna            =  ""
+uvrange            =  ""
+timerange          =  ""
+correlation        =  ""
+scan               =  ""
+intent             =  ""
+feed               =  ""
+array              =  ""
+observation        =  ""
+verbose            =  True
+listfile           =  ""
+listunfl           =  False
+cachesize          =  50
+overwrite          =  False
+#listobs(vis="FITS_list/FITS_list.vla.a.ms",selectdata=True,spw="",field="",antenna="",uvrange="",timerange="",correlation="",scan="",intent="",feed="",array="",observation="",verbose=True,listfile="",listunfl=False,cachesize=50,overwrite=False)
