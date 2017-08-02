@@ -7,6 +7,8 @@ from mpl_toolkits.mplot3d import Axes3D
 import sys
 
 
+
+
 def parse_commandline():
         '''Parses Command line arguments and initiates rest of program.'''
         command = None
@@ -52,142 +54,108 @@ def echo_args(args):
 
 
 def importvisibilities(filename):
+        """ Imports Visibilities from File. """
+        
+        data = np.genfromtxt(filename,dtype=complex,delimiter=',')
 
-    data = np.genfromtxt(filename,dtype=complex,delimiter=',')
-
-    return data
+        return data
 
 def DFT_reference(N,resolution,data):
 
-    data_np = data
-    resp = int(1/resolution)
+        data_np = data
+        resp = int(1/resolution)
     
-    dft_real = np.zeros([N*2*resp,N*2*resp])
-    dft_imag = np.zeros([N*2*resp,N*2*resp])
+        dft_real = np.zeros([N*2*resp,N*2*resp])
+        dft_imag = np.zeros([N*2*resp,N*2*resp])
+    
 
+        for l in np.arange(-N,N,resolution):
 
-    for l in np.arange(-N,N,resolution):
+                l_prime = l/80000
+                print("Calculating row: {} Percentage Complete: {:0.2f} \r".format(l,float((((l+N)*N)/(N*N))*50)),end='')
+                for m in np.arange(-N,N,resolution):
+                        
+                        sumreal = 0
+                        sumimag = 0
 
-        print("Calculating row: {}".format(l))
-        for m in np.arange(-N,N,resolution):
-            sumreal = 0
-            sumimag = 0
-            for idx_u,data in enumerate(data_np):
+                        m_prime = m/80000
+                        
+                        for idx_u,data in enumerate(data_np):
                 
 
-                subang1 = (m*data[2])/80000
-                subang2 = (l*data[1])/80000
-                angle = 2 * math.pi * (subang1 + subang2)
-                sumreal += data[0].real * np.cos(angle) + data[0].imag * np.sin(angle)
-                sumimag += -data[0].real * np.sin(angle) + data[0].imag * np.cos(angle)
+                                subang1 = (m_prime*data[2])
+                                subang2 = (l_prime*data[1])
+                                subang3 = data[3]*(np.sqrt(1- l_prime**2 - m_prime**2) - 1) 
+                                angle = 2 * math.pi * (subang1 + subang2 + subang3)
+                                sumreal += data[0].real * np.cos(angle) + data[0].imag * np.sin(angle)
+                                sumimag += -data[0].real * np.sin(angle) + data[0].imag * np.cos(angle)
 
-            dft_real[int((l+N)*resp)][int((m+N)*resp)] = sumreal
-            dft_imag[int((l+N)*resp)][int((m+N)*resp)] = sumimag
-
-
-    fig = plt.figure()
-    ax = fig.add_subplot(121)
-    ax.set_title('DFT(real)')
-    plt.imshow(dft_real,interpolation='nearest')
-    plt.colorbar(orientation='horizontal')
-    ax = fig.add_subplot(122)
-    ax.set_title('DFT(imag)')
-    plt.imshow(dft_imag,interpolation='nearest')
-    plt.colorbar(orientation='horizontal')
-    plt.show()
+                        dft_real[int((l+N)*resp)][int((m+N)*resp)] = sumreal
+                        dft_imag[int((l+N)*resp)][int((m+N)*resp)] = sumimag
 
 
-def DFT_parallel(N,resolution,data):
 
-    data_np = data
-    resp = int(1/resolution)
+        fig = plt.figure()
+        ax = fig.add_subplot(121)
+        ax.set_title('DFT(real)')
+        plt.imshow(dft_real,interpolation='nearest')
+        plt.colorbar(orientation='horizontal')
+        ax = fig.add_subplot(122)
+        ax.set_title('DFT(imag)')
+        plt.imshow(dft_imag,interpolation='nearest')
+        plt.colorbar(orientation='horizontal')
+        plt.show()
 
-    dft_real = np.zeros([N*2*resp,N*2*resp])
-    dft_imag = np.zeros([N*2*resp,N*2*resp])
-
-    for l in np.arange(-N, N, resolution):
-
-        print("Calculating row: {}".format(l))
-        for m in np.arange(-N, N, resolution):
-
-            sumreal = 0
-            sumimag = 0
-
-            subang1 = m*data_np[:,2] / 80000
-            subang2 = l*data_np[:,1] / 80000
-            angle = 2* np.pi * (np.add(subang1,subang2))
-
-            for idx,data in enumerate(data_np):
-    
-
-                sumreal += data[0].real * np.cos(angle[idx]) + data[0].imag * np.sin(angle[idx])
-                sumimag += -data[0].real * np.sin(angle[idx]) + data[0].imag * np.cos(angle[idx])
-
-            
-            dft_real[int((l+N)*resp)][int((m+N)*resp)] = sumreal
-            dft_imag[int((l+N)*resp)][int((m+N)*resp)] = sumimag
-
-
-    fig = plt.figure()
-    ax = fig.add_subplot(121)
-    ax.set_title('DFT(real)')
-    plt.imshow(dft_real,interpolation='nearest')
-    cbar = plt.colorbar(orientation='horizontal')
-    cbar.set_label("Relative Intensity")
-    ax = fig.add_subplot(122)
-    ax.set_title('DFT(imag)')
-    plt.imshow(dft_imag,interpolation='nearest')
-    plt.suptitle('VLA Dirty Map. Five simulated gaussian point sources.')
-    cbar = plt.colorbar(orientation='horizontal')
-    cbar.set_label("Relative Intensity")
-    plt.show()
 
 
 def main():
+        
+        args = parse_commandline()
 
-    args = parse_commandline()
+        data = importvisibilities(args.filepath)
 
-    data = importvisibilities(args.filepath)
+        #Iterate over rows and create uv gridding.
+        data_np = np.array(data)
+        u = []
+        v = []
+        vis = []
+        for row in data:
+                u.append(row[1].real)
+                v.append(row[2].real)
+                vis.append(row[0])
 
-    #Iterate over rows and create uv gridding.
-    data_np = np.array(data)
-    u = []
-    v = []
-    vis = []
-    for row in data:
-        u.append(row[1].real)
-        v.append(row[2].real)
-        vis.append(row[0])
+        u_np = np.array(u)
+        v_np = np.array(v)
+        vis_np = np.array(vis)
 
-    u_np = np.array(u)
-    v_np = np.array(v)
-    vis_np = np.array(vis)
+        u_np_neg = np.negative(u_np)
+        v_np_neg = np.negative(v_np)
 
-    u_np_neg = np.negative(u_np)
-    v_np_neg = np.negative(v_np)
-
-
-    vis_np = np.append(vis_np,vis_np)
-    u_np = np.append(u_np,u_np_neg)
-    v_np = np.append(v_np,v_np_neg)
+        
+        vis_np = np.append(vis_np,vis_np)
+        u_np = np.append(u_np,u_np_neg)
+        v_np = np.append(v_np,v_np_neg)
     
 
-    #Convert u and v to wavelengths
-    u_np = u_np / 0.15
-    v_np = v_np / 0.15
+        #Convert u and v to wavelengths
+        u_np = u_np / float(args.wavelength)
+        v_np = v_np / float(args.wavelength)
 
-    #Plot UV coverage.
-    plt.scatter(u_np,v_np)
-    plt.show()
+        #Plot UV coverage.
+        plt.scatter(u_np,v_np)
+        plt.suptitle('VLA Simulated Observation, UV Coverage.')
+        plt.xlabel('U(lambdas)')
+        plt.ylabel('V(lambdas)')
+        plt.show()
 
-    #fig = plt.figure()
-    #ax = fig.add_subplot(111,projection='3d')
+        #fig = plt.figure()
+        #ax = fig.add_subplot(111,projection='3d')
 
-    plt.tricontourf(u_np,v_np,vis_np.real)
-    plt.show()
+        plt.tricontourf(u_np,v_np,vis_np.real)
+        plt.show()
 
-
-    DFT_parallel(int(args.size),float(args.resolution),data_np)
+        
+        DFT_reference(int(args.size),float(args.resolution),data_np)
 
 if __name__ == "__main__":
-    main()
+        main()
