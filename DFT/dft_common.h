@@ -2,6 +2,8 @@
 #define GRID_H
 
 #include <cuComplex.h>
+#include "cuda.h"
+#include "cuda_runtime_api.h"
 #define THREADS_BLOCK 16
 
 //HDF5 is C, so lets avoid the name mangling by the c++ compiler.
@@ -101,9 +103,12 @@ struct perf_counters
 };
 
 void init_dtype_cpx();
-int load_vis(const char *filename, struct vis_data *vis,
-             double min_len, double max_len);
 
+int load_vis_CUDA(const char *filename, struct vis_data *vis,
+		    double min_len, double max_len);
+
+int load_vis(const char *filename, struct vis_data *vis,
+	       double min_len, double max_len);
 
 #ifdef __cplusplus
 }
