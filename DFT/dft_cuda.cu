@@ -14,7 +14,6 @@
 
 
 //Using unified memory instead of a deep copy.
-
 // This calculates the DFT at a specific point on the grid.
 // It adds to a local register and then does an atomic add to device memory.
 __device__ cuDoubleComplex calculate_dft_sum(struct vis_data *vis, double l, double m){
@@ -85,19 +84,16 @@ __host__ void image_dft_host(const char* visfile, int grid_size,
 
   cudaEvent_t start, stop;
   float elapsedTime;
-  
-  //  error = cudaMallocManaged(reinterpret_cast<void **>(&vis_dat),sizeof(struct vis_data), cudaMemAttachGlobal);
-  struct vis_data vis_dat;
-  int viserr = load_vis(visfile,&vis_dat,bl_min,bl_max);
+
+struct vis_data *vis_dat;
+  error = cudaMallocManaged((void **)&vis_dat,sizeof(struct vis_data), cudaMemAttachGlobal);
+
+  int viserr = load_vis_CUDA(visfile,vis_dat,bl_min,bl_max);
 
   if (viserr){
     std::cout << "Failed to Load Visibilities \n";
     return; //Kill Program.
-  }
-
-  // Now to get visibilities to the device.
-
-  struct vis_data vis_dat_gpu;
+  }  
 
   //Declare our grid.
   //int grid_size = floor(lambda * theta);
@@ -121,7 +117,7 @@ __host__ void image_dft_host(const char* visfile, int grid_size,
 
     cudaEventCreate(&start);
     cudaEventRecord(start, 0);
-    image_dft <<< 4096,1024>>> (&vis_dat, grid_dev, grid_size, lambda, iter, total_gs);
+    image_dft <<< 4096,1024>>> (vis_dat, grid_dev, grid_size, lambda, iter, total_gs);
     cudaEventCreate(&stop);
     cudaEventRecord(stop, 0);
 
@@ -137,7 +133,7 @@ __host__ void image_dft_host(const char* visfile, int grid_size,
   }
 
 
-  std::cout << "DFT Value: " << cuCreal(grid_dev[500]);
+  //  std::cout << "DFT Value: " << cuCreal(grid_dev[500]);
   
 
   //Check it actually ran...
