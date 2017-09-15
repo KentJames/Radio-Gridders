@@ -48,13 +48,13 @@ int main (int argc, char **argv) {
     cudaDeviceProp prop;
     cudaGetDeviceProperties(&prop,i);
     
-    std::cout << "  Device Number: " << i <<" \n";
-    std::cout << "   Device Name: " << prop.name <<"\n";
-    std::cout << "   Total Memory: " << prop.totalGlobalMem << "\n";
-    std::cout << "   Clock Rate: " << prop.clockRate << "\n";
-    std::cout << "   Threads Per MP: " << prop.maxThreadsPerMultiProcessor << "\n";
-    std::cout << "   Threads Per Block: " << prop.maxThreadsPerBlock << "\n";
-    std::cout << "   Threads Per Dim: " << prop.maxThreadsDim << "\n";
+    std::cout << "\tDevice Number: " << i <<" \n";
+    std::cout << "\t\tDevice Name: " << prop.name <<"\n";
+    std::cout << "\t\tTotal Memory: " << prop.totalGlobalMem << "\n";
+    std::cout << "\t\tClock Rate: " << prop.clockRate << "\n";
+    std::cout << "\t\tThreads Per MP: " << prop.maxThreadsPerMultiProcessor << "\n";
+    std::cout << "\t\tThreads Per Block: " << prop.maxThreadsPerBlock << "\n";
+    std::cout << "\t\tThreads Per Dim: " << prop.maxThreadsDim << "\n";
     std::cout << "\n";
          
 
@@ -120,23 +120,22 @@ int main (int argc, char **argv) {
   //File I/O
 
   
-  struct vis_data vis_dat;
-
-  const char* visfile_c = visfile;
-  if (load_vis(visfile_c,&vis_dat,bl_min,bl_max)) return 1; 
-
-
-  //Declare our grid.
   int grid_size = floor(lambda * theta);
 
-  std::cout << "Grid Size: " << grid_size << " x " << grid_size << "\n";
-  std::cout << "Grid Memory: " << (grid_size * grid_size * sizeof(double _Complex))/1e9;
+  const char* visfile_c = visfile;
 
-  double _Complex *grid = (double _Complex*)malloc(grid_size * grid_size * sizeof(double _Complex));
+  cuDoubleComplex *image_host, *grid_dev;
 
+  //May as well allocate our host image now for when we move it back.
+  image_host = (cuDoubleComplex*)malloc(grid_size * grid_size * sizeof(cuDoubleComplex));
+
+  image_dft_host(visfile_c, grid_size, theta, lambda, bl_min, bl_max,1);
+
+  
 
 
   
+
   return 0;
 
 }
