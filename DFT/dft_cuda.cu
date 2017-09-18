@@ -1,5 +1,6 @@
 //C++ Includes
 #include <iostream>
+#include <fstream>
 #include <cstdlib>
 
 //CUDA Includes
@@ -76,7 +77,7 @@ __global__ void image_dft(struct vis_data *vis, cuDoubleComplex *uvgrid, int gri
 
 
 //This wraps the CUDA Kernel. Otherwise g++ doesn't recognise the <<< operator.
-__host__ void image_dft_host(const char* visfile, int grid_size,
+__host__ cudaError_t image_dft_host(const char* visfile, int grid_size,
 		    double theta,  double lambda, double bl_min, double bl_max,
 		    int iter){
 
@@ -85,14 +86,14 @@ __host__ void image_dft_host(const char* visfile, int grid_size,
   cudaEvent_t start, stop;
   float elapsedTime;
 
-struct vis_data *vis_dat;
+  struct vis_data *vis_dat;
   error = cudaMallocManaged((void **)&vis_dat,sizeof(struct vis_data), cudaMemAttachGlobal);
 
   int viserr = load_vis_CUDA(visfile,vis_dat,bl_min,bl_max);
 
   if (viserr){
     std::cout << "Failed to Load Visibilities \n";
-    return; //Kill Program.
+    return error; //Kill Program.
   }  
 
   //Declare our grid.
@@ -111,8 +112,9 @@ struct vis_data *vis_dat;
   std::cout<<"Total Size: " << total_gs << "\n\n";
   
 
-  cuDoubleComplex *grid_dev;
+  cuDoubleComplex *grid_dev,*grid_host;
   error = cudaMalloc((void **)&grid_dev, grid_size * grid_size * sizeof(cuDoubleComplex));
+  error = cudaMallocHost((void **)&grid_host, grid_size * grid_size * sizeof(cuDoubleComplex));
   if (error == cudaSuccess){
 
     cudaEventCreate(&start);
@@ -129,17 +131,59 @@ struct vis_data *vis_dat;
   else {
 
     std::cout << "Memory Allocation Failed. \n";
-
+    return error;
   }
 
 
   //  std::cout << "DFT Value: " << cuCreal(grid_dev[500]);
+  std::cout << "Copying grid from device to host... \n";
+  error = cudaMemcpy(grid_host,grid_dev, grid_size * grid_size * sizeof(cuDoubleComplex),
+	     cudaMemcpyDeviceToHost);
+  if (error != cudaSuccess){
+    std::cout << "Error transferring from device to host. :( \n";
+    std::cout << "Error: " << cudaGetErrorString(error) << " \n";
+    return error;
+  }
+  //Create Image File
+
+
   
+  std::ofstream image_f ("image.out", std::ofstream::out | std::ofstream::binary);
+  std::cout << "Writing Image to File... \n";
+  
+
+  
+
+  
+  
+  
+  //Write Image to disk on host.
+  double *row;
+  error = cudaMallocHost(&row,grid_size * sizeof(double));
+
+  if (error != cudaSuccess){
+    std::cout << "Error allocating row memory. \n";
+    std::cout << "Error: " << cudaGetErrorString(error) << " \n";
+    return error;
+  }
+  
+  
+  for(int i = 0; i < grid_size; i++){
+
+    for(int j = 0; j< grid_size; j++){
+
+      row[j] = cuCreal(grid_host[i*grid_size + j]);
+
+    }
+    image_f.write((char*)row, sizeof(double) * grid_size);
+  }
+
+  image_f.close();
 
   //Check it actually ran...
   cudaError_t err = cudaGetLastError();
 
   std::cout << "Error: " << cudaGetErrorString(err) << "\n";
-  
+  return err;
 
 }

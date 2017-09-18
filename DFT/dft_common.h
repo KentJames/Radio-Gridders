@@ -126,7 +126,7 @@ __global__ void image_dft(struct vis_data *vis, cuDoubleComplex *uvgrid, int gri
 
 #endif
 
-void image_dft_host(const char* visfile,  int grid_size,
+cudaError_t image_dft_host(const char* visfile,  int grid_size,
 		    double theta,  double lambda, double bl_min, double bl_max,
     int iter);
 
