@@ -9,9 +9,6 @@
 
 #include "dft_common.h"
 
-// Nature constant
-const double c = 299792458.0;
-
 // Complex data type
 hid_t dtype_cpx;
 

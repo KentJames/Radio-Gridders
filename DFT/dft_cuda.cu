@@ -14,6 +14,7 @@
 #include "dft_common.h"
 
 
+
 //Using unified memory instead of a deep copy.
 // This calculates the DFT at a specific point on the grid.
 // It adds to a local register and then does an atomic add to device memory.
@@ -35,12 +36,12 @@ __device__ cuDoubleComplex calculate_dft_sum(struct vis_data *vis, double l, dou
 	
 
 	//nvcc should optimise this section.
-	double subang1 = m * vis->bl[bl].uvw[time*vis->bl[bl].freq_count + freq];
-	double subang2 = l * vis->bl[bl].uvw[time*vis->bl[bl].freq_count + freq + 1];
+	double subang1 = l * vis->bl[bl].uvw[time*vis->bl[bl].freq_count + freq];
+	double subang2 = m * vis->bl[bl].uvw[time*vis->bl[bl].freq_count + freq + 1];
 	double subang3 = (sqrtf(1-l*l-m*m)-1) * vis->bl[bl].uvw[time*vis->bl[bl].freq_count +
 								freq + 2];
 
-	double angle = 2 * M_PI * subang1 + subang2 + subang3;
+	double angle = 2 * M_PI * (subang1 + subang2 + subang3);
 
 	double real_p = cuCreal(visibility) * cos(angle) + cuCimag(visibility) * sin(angle);
 	double complex_p = -cuCreal(visibility) * sin(angle) + cuCimag(visibility) * cos(angle);
@@ -67,8 +68,8 @@ __global__ void image_dft(struct vis_data *vis, cuDoubleComplex *uvgrid, int gri
   int y = floor( (double)(idx / grid_size) ); //Typecast makes sure that we use the CUDA floor, not the C one.
   int x = idx % grid_size;
 
-  double l = (y - grid_size / 2)/lambda;
-  double m = (x - grid_size / 2)/lambda;
+  double l = ((y - grid_size / 2)/lambda) * resolution;
+  double m = ((x - grid_size / 2)/lambda) * resolution;
   
   uvgrid[idx] = calculate_dft_sum(vis, l, m);
 
@@ -119,7 +120,7 @@ __host__ cudaError_t image_dft_host(const char* visfile, int grid_size,
 
     cudaEventCreate(&start);
     cudaEventRecord(start, 0);
-    image_dft <<< 4096,1024>>> (vis_dat, grid_dev, grid_size, lambda, iter, total_gs);
+    image_dft <<< 16384,1024>>> (vis_dat, grid_dev, grid_size, lambda, iter, total_gs);
     cudaEventCreate(&stop);
     cudaEventRecord(stop, 0);
 
