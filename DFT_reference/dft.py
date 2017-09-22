@@ -14,12 +14,13 @@ def parse_commandline():
         command = None
         #Instantiate command line parser.
         command = argparse.ArgumentParser(formatter_class=argparse.RawDescriptionHelpFormatter,description=textwrap.dedent('''
-                                                            Plotting Utility v0.1.
+                                                            DFT Utility v0.1.
                                                             Author: James Kent. 
                                                             Institution: University of Cambridge, 2016.
                                                             Email: jck42@cam.ac.uk 
 
-                                                            Takes a CSV File and Plots and outputs to csv file.'''))
+                                                            Takes a correlated coherence data from an inteferometer
+                                                            and plots the direct DFT.'''))
 
         
         #Add required arguments.
@@ -60,7 +61,7 @@ def importvisibilities(filename):
 
         return data
 
-def DFT_reference(N,resolution,data):
+def DFT_reference(N,resolution,data,wavelength):
 
         data_np = data
         resp = int(1/resolution)
@@ -71,14 +72,14 @@ def DFT_reference(N,resolution,data):
 
         for l in np.arange(-N,N,resolution):
 
-                l_prime = l/80000
-                print("Calculating row: {} Percentage Complete: {:0.2f} \r".format(l,float((((l+N)*N)/(N*N))*50)),end='')
+                l_prime = l/wavelength
+                print("Calculating row: {} Percentage Complete: {:0.6f} \r".format(l,float((((l+N)*N)/(N*N))*50)),end='')
                 for m in np.arange(-N,N,resolution):
                         
                         sumreal = 0
                         sumimag = 0
 
-                        m_prime = m/80000
+                        m_prime = m/wavelength
                         
                         for idx_u,data in enumerate(data_np):
                 
@@ -155,7 +156,7 @@ def main():
         plt.show()
 
         
-        DFT_reference(int(args.size),float(args.resolution),data_np)
+        DFT_reference(int(args.size),float(args.resolution),data_np,int(args.wavelength))
 
 if __name__ == "__main__":
         main()
