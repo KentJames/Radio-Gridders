@@ -5,7 +5,6 @@
 
 //CUDA Includes
 #include <cuComplex.h>
-#include <cufft.h>
 #include "cuda.h"
 #include "math.h"
 #include "cuda_runtime_api.h"
