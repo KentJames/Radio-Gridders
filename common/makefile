@@ -1,10 +1,10 @@
-CC = gcc
+CC = nvcc
 
 
-all: hdf5.a
+all: libhdf5_cu.a
 
-hdf5.a: hdf5.o
+libhdf5_cu.a: hdf5_cu.o
 	ar rcs $@ $^
 
-hdf5.o: hdf5.c hdf5_h.h
-	gcc -c -o $@ $< -lhdf5
+hdf5_cu.o: hdf5.c hdf5_h.h
+	$(CC) -c -o $@ $< -lhdf5
