@@ -303,7 +303,7 @@ int load_vis_CUDA(const char *filename, struct vis_data *vis,
         vis->bl_count = vis->antenna_count * (vis->antenna_count - 1) / 2;
 
         // Read baselines
-        vis->bl = (struct bl_data *)calloc(vis->bl_count, sizeof(struct bl_data));
+        //vis->bl = (struct bl_data *)calloc(vis->bl_count, sizeof(struct bl_data));
 	cudaMallocManaged((void**)&vis->bl, vis->bl_count * sizeof(struct bl_data),cudaMemAttachGlobal);
         int a1, bl = 0;
         for (a1 = 0; a1 < vis->antenna_count-1; a1++) {
@@ -662,6 +662,163 @@ int load_vis(const char *filename, struct vis_data *vis,
     printf("Antennas:    %d - %d\n"           , 0, vis->antenna_count);
     printf("t range:     %.6f - %.6f MJD UTC\n", stats.t_min, stats.t_max);
     printf("f range:     %.2f - %.2f MHz\n"    , stats.f_min/1e6, stats.f_max/1e6);
+
+    return 0;
+}
+
+#ifdef VAR_W_KERN
+int load_wkern_CUDA(const char *filename, double theta, struct var_w_kernel_data *wkern){
+#else
+int load_wkern_CUDA(const char *filename, double theta, struct w_kernel_data *wkern) {
+#endif
+    // Open file
+    hid_t wkern_f = H5Fopen(filename, H5F_ACC_RDONLY, H5P_DEFAULT);
+    if (wkern_f < 0) {
+        fprintf(stderr, "Could not open w kernel file %s!\n", filename);
+        return 1;
+    }
+
+    // Access appropriate w-kernel group
+    char wkern_name[64];
+    sprintf(wkern_name, "wkern/%g", theta);
+    hid_t wkern_g = H5Gopen(wkern_f, wkern_name, H5P_DEFAULT);
+    if (wkern_g < 0) {
+        fprintf(stderr, "Could not open '%s' group in w kernel file %s!\n", wkern_name, filename);
+        H5Fclose(wkern_f);
+        return 1;
+    }
+
+    // Read number of w-planes
+    hsize_t nobjs = 0;
+    H5Gget_num_objs(wkern_g, &nobjs);
+    wkern->plane_count = nobjs;
+    if (wkern->plane_count == 0) {
+        fprintf(stderr, "Found no w-kernels in w-kernel file %s!\n", filename);
+        H5Gclose(wkern_g);
+        H5Fclose(wkern_f);
+        return 1;
+    }
+
+    // Read kernels
+    #ifdef VAR_W_KERN
+    //wkern->kern = (struct var_w_kernel *)calloc(wkern->plane_count, sizeof(struct var_w_kernel));
+    cudaMallocManaged((void**)&wkern->kern, wkern->plane_count * sizeof(struct bl_data), cudaMemAttachGlobal);
+    #else
+    //wkern->kern = (struct w_kernel *)calloc(wkern->plane_count, sizeof(struct w_kernel));
+    cudaMallocManaged((void**)&wkern->kern, wkern->plane_count * sizeof(struct bl_data), cudaMemAttachGlobal);
+    wkern->size_x = wkern->size_y = wkern->oversampling = 0;
+    #endif
+
+    int i;
+    for (i = 0; i < wkern->plane_count; i++) {
+        char name[64];
+        H5Gget_objname_by_idx(wkern_g, i, name, sizeof(name));
+
+        // Save w-value
+        double w = atof(name);
+        wkern->kern[i].w = w;
+        if (w > wkern->w_max) { wkern->w_max = w; }
+        if (w < wkern->w_min) { wkern->w_min = w; }
+
+        // Open the data set
+        char data_name[64];
+        sprintf(data_name, "%s/kern", name);
+        hid_t dset = H5Dopen(wkern_g, data_name, H5P_DEFAULT);
+
+        // Check that it has the expected format
+        if (H5Sget_simple_extent_ndims(H5Dget_space(dset)) == 4 &&
+            H5Tget_size(H5Dget_type(dset)) == sizeof(double _Complex)) {
+
+	    // Read dimensions
+            hsize_t dims[4];
+            H5Sget_simple_extent_dims(H5Dget_space(dset), dims, NULL);
+
+#ifdef VAR_W_KERN
+
+	    wkern->kern[i].oversampling = dims[0];
+	    wkern->kern[i].size_y = dims[2];
+	    wkern->kern[i].size_x = dims[3];
+
+	    hsize_t total_size = wkern->kern[i].oversampling * wkern->kern[i].oversampling *
+	      wkern->kern[i].size_y * wkern->kern[i].size_x;
+
+	    //wkern->kern[i].data = (double _Complex *)calloc(sizeof(double _Complex), total_size);
+	    cudaMallocManaged((void**)&wkern->kern[i].data, total_size * sizeof(double _Complex), cudaMemAttachGlobal);
+	    H5Dread(dset, dtype_cpx, H5S_ALL, H5S_ALL, H5P_DEFAULT, wkern->kern[i].data);
+
+
+	    // Complain if anything is amiss
+	    if (wkern->kern[i].oversampling <= 0 || wkern->kern[i].size_y <= 0
+		|| wkern->kern[i].size_x <= 0) {
+	      fprintf(stderr, "Invalid dimensions in w-kernel %s!\n", data_name);
+	      return 1;
+	    }
+    
+
+	  
+#else
+          
+            if (wkern->oversampling == 0) {
+                wkern->oversampling = dims[0];
+                wkern->size_y = dims[2];
+                wkern->size_x = dims[3];
+            }
+            if (wkern->oversampling == dims[0] && wkern->oversampling == dims[1] &&
+                wkern->size_y == dims[2] && wkern->size_x == dims[3]) {
+
+                // Read kernel
+                hsize_t total_size = wkern->oversampling * wkern->oversampling * wkern->size_y * wkern->size_x;
+                //wkern->kern[i].data = (double _Complex *)calloc(sizeof(double _Complex), total_size);
+		cudaMallocManaged((void**)&wkern->kern[i].data, total_size * sizeof(double _Complex), cudaMemAttachGlobal);
+                H5Dread(dset, dtype_cpx, H5S_ALL, H5S_ALL, H5P_DEFAULT, wkern->kern[i].data);
+
+            } else {
+                fprintf(stderr, "kernel %s has inconsistent dimensions - ignored!\n", data_name);
+            }
+#endif
+
+	}
+        H5Dclose(dset);
+    }
+
+    // Close file
+    H5Gclose(wkern_g);
+    H5Fclose(wkern_f);
+
+#ifndef VAR_W_KERN
+    // Complain if anything is amiss
+    if (wkern->oversampling <= 0 || wkern->size_y <= 0 || wkern->size_x <= 0) {
+        fprintf(stderr, "Invalid dimensions in w-kernel file %s!\n", filename);
+        return 1;
+    }
+#endif
+    // Index kernels by w-value
+
+#ifdef VAR_W_KERN
+    wkern->kern_by_w = (struct var_w_kernel *)malloc(sizeof(struct var_w_kernel) * wkern->plane_count);
+    cudaMallocManaged((void**)&wkern->kern_by_w, wkern->plane_count * sizeof(struct var_w_kernel), cudaMemAttachGlobal);
+#else						  
+    wkern->kern_by_w = (struct w_kernel *)malloc(sizeof(struct w_kernel) * wkern->plane_count);
+    cudaMallocManaged((void**)&wkern->kern_by_w, wkern->plane_count * sizeof(struct w_kernel), cudaMemAttachGlobal);
+#endif						     
+    wkern->w_step = (wkern->w_max - wkern->w_min) / (wkern->plane_count - 1);
+    for (i = 0; i < wkern->plane_count; i++) {
+        double w = wkern->w_min + (i * wkern->w_step);
+
+        // Find closest kernel. We should find an exact match if the
+        // w-planes are evenly spaced, but this is more robust.
+        int best = 0, j;
+        for (j = 1; j < wkern->plane_count; j++) {
+            if (fabs(wkern->kern[j].w - w) < fabs(wkern->kern[best].w - w)) {
+                best = j;
+            }
+        }
+
+        // Set
+        wkern->kern_by_w[i] = wkern->kern[best];
+    }
+    printf("w kernels:   %.2f - %.2f lambda (step %.2f lambda)\n",
+           wkern->w_min, wkern->w_max, wkern->w_step);
 
     return 0;
 }

@@ -115,6 +115,7 @@ extern "C" {
 				  int time, int freq, int uvw) {
     return bl_data->uvw[3*time+uvw] * bl_data->freq[freq] / c;
   }
+
   
 
   int load_vis_CUDA(const char *filename, struct vis_data *vis,
@@ -123,6 +124,19 @@ extern "C" {
   int load_vis(const char *filename, struct vis_data *vis,
 	       double min_len, double max_len);
 
+  //You must compile both hdf5.c AND your kernel with -DVAR_W_KERN to use variable w-kernels.
+#ifdef VAR_W_KERN
+  int load_wkern_CUDA(const char *filename, double theta, struct var_w_kernel_data *wkern);
+#else
+  int load_wkern_CUDA(const char *filename, double theta, struct w_kernel_data *wkern);
+#endif
+
+#ifdef VAR_W_KERN
+  int load_wkern(const char *filename, double theta, struct var_w_kernel_data *wkern);
+#else
+  int load_wkern(const char *filename, double theta, struct w_kernel_data *wkern);
+#endif
+  
 #ifdef __cplusplus
 }
 #endif
