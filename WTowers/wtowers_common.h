@@ -1,5 +1,7 @@
-#ifndef GRID_H
-#define GRID_H
+#include "hdf5_h.h"
+
+#ifndef WTOWER_H
+#define WTOWER_H
 
 #include <cuComplex.h>
 #include "cuda.h"
@@ -19,7 +21,7 @@ __global__ void image_dft(struct vis_data *vis, cuDoubleComplex *uvgrid, int gri
 
 #endif
 
-cudaError_t image_dft_host(const char* visfile,  int grid_size,
+cudaError_t wtowers_host(const char* visfile, const char* wkernfile, int grid_size,
 			   double theta,  double lambda, double bl_min, double bl_max,
 			   int iter);
 
