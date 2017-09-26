@@ -21,9 +21,9 @@ __global__ void image_dft(struct vis_data *vis, cuDoubleComplex *uvgrid, int gri
 
 #endif
 
-cudaError_t wtowers_host(const char* visfile, const char* wkernfile, int grid_size,
+cudaError_t wtowers_CUDA(const char* visfile, const char* wkernfile, int grid_size,
 			   double theta,  double lambda, double bl_min, double bl_max,
-			   int iter);
+			 int subgrid_size, int subgrid_margin, double witer);
 
 
 #endif
