@@ -13,6 +13,15 @@
 #include "dft_common.h"
 
 
+#define cudaError_check(ans) { gpuAssert((ans), __FILE__, __LINE__); }
+inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=true)
+{
+   if (code != cudaSuccess) 
+   {
+      fprintf(stderr,"GPUassert: %s %s %d\n", cudaGetErrorString(code), file, line);
+      if (abort) exit(code);
+   }
+}
 
 //Using unified memory instead of a deep copy.
 // This calculates the DFT at a specific point on the grid.
@@ -59,8 +68,8 @@ __device__ cuDoubleComplex calculate_dft_sum(struct vis_data *vis, double l, dou
 
 
 //Executes a direct DFT from a given visibility dataset.
-__global__ void image_dft(struct vis_data *vis, cuDoubleComplex *uvgrid, int grid_size,
-			  double lambda, int iter, int N){
+__global__ void image_dft(struct vis_data *vis, cuDoubleComplex *uvgrid,
+			  int grid_size, double lambda){
 
   int idx = threadIdx.x + blockIdx.x * blockDim.x;
   
@@ -78,16 +87,16 @@ __global__ void image_dft(struct vis_data *vis, cuDoubleComplex *uvgrid, int gri
 
 //This wraps the CUDA Kernel. Otherwise g++ doesn't recognise the <<< operator.
 __host__ cudaError_t image_dft_host(const char* visfile, int grid_size,
-		    double theta,  double lambda, double bl_min, double bl_max,
-		    int iter){
+				    double theta,  double lambda, double bl_min, double bl_max,
+				    int blocks, int threads_block){
 
-  cudaError_t error;
+  cudaError_t error = cudaSuccess;
 
   cudaEvent_t start, stop;
   float elapsedTime;
 
   struct vis_data *vis_dat;
-  error = cudaMallocManaged((void **)&vis_dat,sizeof(struct vis_data), cudaMemAttachGlobal);
+  cudaError_check(cudaMallocManaged((void **)&vis_dat,sizeof(struct vis_data), cudaMemAttachGlobal));
 
   int viserr = load_vis_CUDA(visfile,vis_dat,bl_min,bl_max);
 
@@ -113,37 +122,25 @@ __host__ cudaError_t image_dft_host(const char* visfile, int grid_size,
   
 
   cuDoubleComplex *grid_dev,*grid_host;
-  error = cudaMalloc((void **)&grid_dev, grid_size * grid_size * sizeof(cuDoubleComplex));
-  error = cudaMallocHost((void **)&grid_host, grid_size * grid_size * sizeof(cuDoubleComplex));
-  if (error == cudaSuccess){
+  cudaError_check(cudaMalloc((void **)&grid_dev, grid_size * grid_size * sizeof(cuDoubleComplex)));
+  cudaError_check(cudaMallocHost((void **)&grid_host, grid_size * grid_size * sizeof(cuDoubleComplex)));
+  cudaEventCreate(&start);
+  cudaEventRecord(start, 0);
+  image_dft <<< blocks , threads_block >>> (vis_dat, grid_dev, grid_size, lambda);
+  cudaEventCreate(&stop);
+  cudaEventRecord(stop, 0);
 
-    cudaEventCreate(&start);
-    cudaEventRecord(start, 0);
-    image_dft <<< 16384,1024>>> (vis_dat, grid_dev, grid_size, lambda, iter, total_gs);
-    cudaEventCreate(&stop);
-    cudaEventRecord(stop, 0);
+  cudaEventSynchronize(stop);
+  cudaEventElapsedTime(&elapsedTime, start, stop);
 
-    cudaEventSynchronize(stop);
-    cudaEventElapsedTime(&elapsedTime, start, stop);
-
-    std::cout << "Elapsed Time: " << elapsedTime << "\n";
-  }
-  else {
-
-    std::cout << "Memory Allocation Failed. \n";
-    return error;
-  }
+  std::cout << "Elapsed Time: " << elapsedTime << "\n";
+  
 
 
   //  std::cout << "DFT Value: " << cuCreal(grid_dev[500]);
   std::cout << "Copying grid from device to host... \n";
-  error = cudaMemcpy(grid_host,grid_dev, grid_size * grid_size * sizeof(cuDoubleComplex),
-	     cudaMemcpyDeviceToHost);
-  if (error != cudaSuccess){
-    std::cout << "Error transferring from device to host. :( \n";
-    std::cout << "Error: " << cudaGetErrorString(error) << " \n";
-    return error;
-  }
+  cudaError_check(cudaMemcpy(grid_host,grid_dev, grid_size * grid_size * sizeof(cuDoubleComplex),
+			     cudaMemcpyDeviceToHost));
   //Create Image File
 
 
@@ -159,15 +156,8 @@ __host__ cudaError_t image_dft_host(const char* visfile, int grid_size,
   
   //Write Image to disk on host.
   double *row;
-  error = cudaMallocHost(&row,grid_size * sizeof(double));
-
-  if (error != cudaSuccess){
-    std::cout << "Error allocating row memory. \n";
-    std::cout << "Error: " << cudaGetErrorString(error) << " \n";
-    return error;
-  }
-  
-  
+  cudaError_check(cudaMallocHost(&row,grid_size * sizeof(double)));
+    
   for(int i = 0; i < grid_size; i++){
 
     for(int j = 0; j< grid_size; j++){
