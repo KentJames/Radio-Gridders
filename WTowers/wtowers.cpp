@@ -31,7 +31,7 @@ Institution: University of Cambridge
 
 void showHelp(){
 
-  std::cout<<"cuTowers v1.0\n";
+  std::cout<<"\ncuTowers v1.0\n";
   std::cout<<"James Kent <jck42@cam.ac.uk>\n";
   std::cout<<"A CUDA Implementation of W-Towers \n";
   std::cout<<"University of Cambridge\n\n";
@@ -43,7 +43,7 @@ void showHelp(){
   std::cout<<"\t-vis                 Input Visibilities\n";
   std::cout<<"\t-subgrid             W-Towers Subgrid Size\n";
   std::cout<<"\t-margin              W-Towers Margin Size\n";
-  std::cout<<"\t-wincrement          W-Plane Increment Size\n";
+  std::cout<<"\t-winc                W-Plane Increment Size\n";
   std::cout<<"\n\n\n";
 }
 
@@ -81,7 +81,7 @@ int main (int argc, char **argv) {
 
   int subgrid_size;
   int subgrid_margin;
-  double wincrement;
+  double winc;
   
   char *visfile = NULL;
   char *wkernfile = NULL;
@@ -109,7 +109,7 @@ int main (int argc, char **argv) {
     getCmdLineArgumentString(argc, (const char **) argv, "vis", &visfile);
   }
 
-  if (checkCmdLineFlag(argc, (const char **)argv, "wkern") == 0){
+  if (checkCmdLineFlag(argc, (const char **)argv, "wkernel") == 0){
 
     std::cout << "No W-Kernel File Specified!! \n";
     showHelp();
@@ -117,7 +117,7 @@ int main (int argc, char **argv) {
   }
   else {
 
-    getCmdLineArgumentString(argc, (const char **) argv, "wkern", &wkernfile);
+    getCmdLineArgumentString(argc, (const char **) argv, "wkernel", &wkernfile);
 
   } 
   
@@ -157,7 +157,7 @@ int main (int argc, char **argv) {
 
     subgrid_size = getCmdLineArgumentInt(argc, (const char **) argv, "subgrid");
     subgrid_margin = getCmdLineArgumentInt(argc, (const char **) argv, "margin");
-    wincrement = getCmdLineArgumentFloat(argc, (const char **) argv, "wincrement");
+    winc = getCmdLineArgumentFloat(argc, (const char **) argv, "winc");
 
   }
 
@@ -176,7 +176,8 @@ int main (int argc, char **argv) {
 
 
   //Call our W-Towers wrapper.
-  wtowers_host(visfile_c, wkernfile_c, grid_size, theta, lambda, bl_min, bl_max,1);
+  wtowers_CUDA(visfile_c, wkernfile_c, grid_size, theta, lambda, bl_min, bl_max,
+	       subgrid_size, subgrid_margin, winc);
 
   
 
