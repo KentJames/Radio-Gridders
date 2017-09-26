@@ -15,14 +15,14 @@
 __device__ cuDoubleComplex calculate_dft_sum(struct vis_data *vis, double l, double m);
 
 __global__ void image_dft(struct vis_data *vis, cuDoubleComplex *uvgrid, int grid_size,
-			  double lambda, int iter, int N);
+			  double lambda);
 
 
 #endif
 
 cudaError_t image_dft_host(const char* visfile,  int grid_size,
 			   double theta,  double lambda, double bl_min, double bl_max,
-			   int iter);
+			   int blocks, int threads_block);
 
 
 #endif

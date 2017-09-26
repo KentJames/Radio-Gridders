@@ -26,18 +26,24 @@ Institution: University of Cambridge
 void showHelp(){
 
   std::cout<<"cuDFT v1.0\n";
+  std::cout<<"\nCalculates direct iDFT (not iFFT) of visibilities\n"
+                "representing the spatial coherence function of a\n"
+                "radio astronomy interferometer baseline.\n\n";
   std::cout<<"James Kent <jck42@cam.ac.uk>\n";
   std::cout<<"University of Cambridge\n\n";
   std::cout<<"\t-theta               Field of View (Radians)\n";
   std::cout<<"\t-lambda              Number of Wavelengths\n";
   std::cout<<"\t-image               Image File\n";
   std::cout<<"\t-vis                 Input Visibilities\n";
+  std::cout<<"\t-blocks              Number of CUDA Blocks\n";
+  std::cout<<"\t-threadblock         Number of CUDA Threads per Block\n";
   std::cout<<"\n\n\n";
 }
 
 int main (int argc, char **argv) {
 
 
+  
   std::cout << "CUDA System Information: \n\n";
   int numberofgpus;
 
@@ -72,6 +78,9 @@ int main (int argc, char **argv) {
 
   double bl_min = 0;
   double bl_max = 1.7976931348623158e+308 ;
+
+  int cuda_blocks, cuda_threads_block;
+  
   
   // Parameters
   if (checkCmdLineFlag(argc, (const char **)argv, "help")) {
@@ -116,6 +125,31 @@ int main (int argc, char **argv) {
 
   }
 
+
+  if (checkCmdLineFlag(argc, (const char **) argv, "blocks") == 0){
+
+    std::cout << "Number of CUDA Blocks not specified!! \n";
+    showHelp();
+    return 0;
+  }
+  else {
+
+    cuda_blocks = getCmdLineArgumentInt(argc, (const char **) argv, "blocks");
+
+  }
+
+  if (checkCmdLineFlag(argc, (const char **) argv, "threadblock") == 0){
+
+    std::cout << "Number of CUDA Threads per Block  not specified!! \n";
+    showHelp();
+    return 0;
+  }
+  else {
+
+    cuda_threads_block = getCmdLineArgumentInt(argc, (const char **) argv, "threadblock");
+
+  }
+  
   
   //File I/O
 
@@ -129,7 +163,8 @@ int main (int argc, char **argv) {
   //May as well allocate our host image now for when we move it back.
   image_host = (cuDoubleComplex*)malloc(grid_size * grid_size * sizeof(cuDoubleComplex));
 
-  image_dft_host(visfile_c, grid_size, theta, lambda, bl_min, bl_max,1);
+  image_dft_host(visfile_c, grid_size, theta, lambda, bl_min, bl_max,
+		 cuda_blocks, cuda_threads_block);
 
   
 
