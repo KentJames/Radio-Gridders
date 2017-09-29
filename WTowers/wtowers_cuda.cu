@@ -82,6 +82,27 @@ __global__ void fresnel_pattern_kernel(cuDoubleComplex *subimg, cuDoubleComplex 
 /******************************
 	  Host Functions
 *******************************/
+
+__host__  void *cudaReallocManaged(void *ptr, int size, int size_original){
+
+  void *new_ptr;
+
+  //Malloc if passed NULL pointer.
+  if(ptr == NULL){
+    cudaError_check(cudaMallocManaged(&new_ptr, size));
+    return new_ptr;
+  }
+
+  if(size > size_original){
+    
+    cudaError_check(cudaMallocManaged(&new_ptr, size));
+    cudaMemcpy(&new_ptr,&ptr,size_original,cudaMemcpyDefault);
+    return new_ptr;
+  }
+  else {
+    return ptr;
+  }
+}
  
 __host__ inline void fft_shift(cuDoubleComplex *uvgrid, int grid_size) {
 

@@ -29,6 +29,10 @@ __global__ void fresnel_pattern_kernel(cuDoubleComplex *subimg, cuDoubleComplex 
 
 #endif
 
+//Host Functions
+
+__host__  void *cudaReallocManaged(void *ptr, int size, int size_original);
+
 __host__ inline void fft_shift(cuDoubleComplex *uvgrid, int grid_size);
 
 cudaError_t wtowers_CUDA(const char* visfile, const char* wkernfile, int grid_size,
