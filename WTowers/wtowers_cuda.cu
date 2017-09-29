@@ -14,6 +14,12 @@
 //Our Include
 #include "wtowers_common.h"
 
+
+
+/*****************************
+      CUDA Error Checker
+******************************/
+ 
 #define cudaError_check(ans) { gpuAssert((ans), __FILE__, __LINE__); }
 inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=true)
 {
@@ -23,6 +29,12 @@ inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=t
       if (abort) exit(code);
    }
 }
+
+
+/*****************************
+        Device Functions
+ *****************************/
+
 
 __host__ __device__ inline cuDoubleComplex cu_cexp_d (cuDoubleComplex z){
 
@@ -35,7 +47,43 @@ __host__ __device__ inline cuDoubleComplex cu_cexp_d (cuDoubleComplex z){
 
 }
 
-__host__ __device__ inline void fft_shift(cuDoubleComplex *uvgrid, int grid_size) {
+
+  
+  
+
+/******************************
+            Kernels
+*******************************/
+
+
+
+//This is our Romein-style scatter gridder.
+__global__ void scatter_grid_kernel(struct vis_data *vis, struct w_kernel_data *wkern,
+				  cuDoubleComplex *uvgrid, int max_support, int grid_size){
+
+
+
+}
+
+
+__global__ void fresnel_pattern_kernel(cuDoubleComplex *subimg, cuDoubleComplex *subgrid,
+				       cuDoubleComplex *fresnel, int subgrid_size, int w_plane){
+
+
+
+}
+				       
+
+
+
+
+
+
+/******************************
+	  Host Functions
+*******************************/
+ 
+__host__ inline void fft_shift(cuDoubleComplex *uvgrid, int grid_size) {
 
     // Shift the FFT
     assert(grid_size % 2 == 0);
@@ -58,14 +106,16 @@ __host__ __device__ inline void fft_shift(cuDoubleComplex *uvgrid, int grid_size
 __host__ cudaError_t wtowers_CUDA(const char* visfile, const char* wkernfile, int grid_size,
 			   double theta,  double lambda, double bl_min, double bl_max,
 				  int subgrid_size, int subgrid_margin, double wincrement){
-
+  //For Benchmarking.
+  
   cudaError_t error;
   cudaEvent_t start, stop;
   float elapsedTime;
 
+  // Load visibility and w-kernel data from HDF5 files.
+  
   struct vis_data *vis_dat;
   struct w_kernel_data *wkern_dat;
-
 
   cudaError_check(cudaMallocManaged((void **)&vis_dat, sizeof(struct vis_data), cudaMemAttachGlobal));
   cudaError_check(cudaMallocManaged((void **)&wkern_dat, sizeof(struct w_kernel_data), cudaMemAttachGlobal));
@@ -82,21 +132,25 @@ __host__ cudaError_t wtowers_CUDA(const char* visfile, const char* wkernfile, in
     return error;
   }
 
+
+  //Allocate our main grid.
+  
   int total_gs = grid_size * grid_size;
   
   cuDoubleComplex *grid_dev, *grid_host;
-
   cudaError_check(cudaMalloc((void **)&grid_dev, total_gs * sizeof(cuDoubleComplex)));
   cudaError_check(cudaMallocHost((void **)&grid_host, total_gs * sizeof(cuDoubleComplex)));
 
   int subgrid_mem_size = sizeof(cuDoubleComplex) * subgrid_size * subgrid_size;
+
+
+  //Create the fresnel interference pattern for the W-Dimension
+  //See Tim Cornwells paper on W-Projection for more information.
   
   cuDoubleComplex *wtransfer;
-
   cudaError_check(cudaMallocManaged((void **)&wtransfer, subgrid_mem_size, cudaMemAttachGlobal));
 
   int x,y;
-  //The fresnel pattern. A kernel can be written for this.
   for (y=0; y < subgrid_size; ++y){
 
     for (x=0; x < subgrid_size; ++x){
@@ -111,10 +165,35 @@ __host__ cudaError_t wtowers_CUDA(const char* visfile, const char* wkernfile, in
 
   }
 
+  //Create FFT Plans for our frequent fft's.
+
   cufftHandle fft_plan;
   cufftPlan2d(&fft_plan,subgrid_size,subgrid_size,CUFFT_D2Z);
 
+
+  //Allocate subgrids/subimgs on the GPU
   
+  assert( grid_size % subgrid_size == 0);
+  int chunk_count_1d = grid_size / subgrid_size;
+  int total_chunks = chunk_count_1d * chunk_count_1d;
+
+  cuDoubleComplex **subgrids, **subimgs;
+
+  cudaError_check(cudaMallocManaged(&subgrids, total_chunks * sizeof(cuDoubleComplex)));
+  cudaError_check(cudaMallocManaged(&subimgs, total_chunks * sizeof(cuDoubleComplex)));
+
+  //Create streams for each tower and allocate our chunks on GPU memory.
+  
+  cudaStream_t streams[total_chunks];
+  for(int i = 0; i < total_chunks; ++i){
+
+    cudaStreamCreate(&streams[i]);
+
+    cudaError_check(cudaMallocManaged(subgrids + i, subgrid_mem_size * sizeof(cuDoubleComplex)));
+    cudaError_check(cudaMallocManaged(subimgs + i, subgrid_mem_size * sizeof(cuDoubleComplex)));
+
+  }
+
   
 
   
