@@ -35,7 +35,6 @@ inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=t
         Device Functions
  *****************************/
 
-
 __host__ __device__ inline cuDoubleComplex cu_cexp_d (cuDoubleComplex z){
 
   cuDoubleComplex res;
@@ -48,14 +47,9 @@ __host__ __device__ inline cuDoubleComplex cu_cexp_d (cuDoubleComplex z){
 }
 
 
-  
-  
-
 /******************************
             Kernels
 *******************************/
-
-
 
 //This is our Romein-style scatter gridder.
 __global__ void scatter_grid_kernel(struct vis_data *vis, struct w_kernel_data *wkern,
@@ -74,15 +68,11 @@ __global__ void fresnel_pattern_kernel(cuDoubleComplex *subimg, cuDoubleComplex 
 }
 				       
 
-
-
-
-
-
 /******************************
 	  Host Functions
 *******************************/
 
+// Doesn't seem like it should be much effort for NVIDIA to add this to CUDA?
 __host__  void *cudaReallocManaged(void *ptr, int size, int size_original){
 
   void *new_ptr;
@@ -103,24 +93,88 @@ __host__  void *cudaReallocManaged(void *ptr, int size, int size_original){
     return ptr;
   }
 }
+
+
+__host__ inline double lambda_min(struct bl_data *bl_data, double u) {
+    return u * (u < 0 ? bl_data->f_max : bl_data->f_min) / c;
+}
+
+__host__ inline double lambda_max(struct bl_data *bl_data, double u) {
+    return u * (u < 0 ? bl_data->f_min : bl_data->f_max) / c;
+}
  
 __host__ inline void fft_shift(cuDoubleComplex *uvgrid, int grid_size) {
 
-    // Shift the FFT
-    assert(grid_size % 2 == 0);
-    int x, y;
-    for (y = 0; y < grid_size; y++) {
-        for (x = 0; x < grid_size/2; x++) {
-            int ix0 = y * grid_size + x;
-            int ix1 = (ix0 + (grid_size+1) * (grid_size/2)) % (grid_size*grid_size);
-            cuDoubleComplex temp = uvgrid[ix0];
-            uvgrid[ix0] = uvgrid[ix1];
-            uvgrid[ix1] = temp;
-        }
+  // Shift the FFT
+  assert(grid_size % 2 == 0);
+  int x, y;
+  for (y = 0; y < grid_size; y++) {
+    for (x = 0; x < grid_size/2; x++) {
+      int ix0 = y * grid_size + x;
+      int ix1 = (ix0 + (grid_size+1) * (grid_size/2)) % (grid_size*grid_size);
+      cuDoubleComplex temp = uvgrid[ix0];
+      uvgrid[ix0] = uvgrid[ix1];
+      uvgrid[ix1] = temp;
     }
+  }
 
 }
 
+__host__ inline void bin_visibilities(struct vis_data *vis, struct bl_data ***bins,
+				      int chunk_count, int wincrement, double theta,
+				      int grid_size, int chunk_size){
+
+  std::cout << "Binning our visibilities in U/V for our chunks..\n";
+  // Determine bounds in w
+  double vis_w_min = 0, vis_w_max = 0;
+  int bl;
+  for (bl = 0; bl < vis->bl_count; bl++) {
+    double w_min = lambda_min(&vis->bl[bl], vis->bl[bl].w_min);
+    double w_max = lambda_max(&vis->bl[bl], vis->bl[bl].w_max);
+    if (w_min < vis_w_min) { vis_w_min = w_min; }
+    if (w_max > vis_w_max) { vis_w_max = w_max; }
+  }
+
+  int wp_min = (int) floor(vis_w_min / wincrement + 0.5);
+  int wp_max = (int) floor(vis_w_max / wincrement + 0.5);
+
+  // Bin in uv
+  int bins_size = sizeof(void *) * chunk_count * chunk_count;
+  cudaError_check(cudaMallocManaged(&bins, bins_size));
+  cudaError_check(cudaMemset(bins, 0, bins_size));
+    
+  int bins_count_size = sizeof(int) * chunk_count * chunk_count;
+  int *bins_count = (int *)malloc(bins_count_size);
+  cudaError_check(cudaMallocManaged(&bins_count, bins_count_size));
+  cudaError_check(cudaMemset(bins_count, 0, bins_count_size));
+  for (bl = 0; bl < vis->bl_count; bl++) {
+
+    // Determine bounds (could be more precise, future work...)
+    struct bl_data *bl_data = &vis->bl[bl];
+    double u_min = lambda_min(bl_data, bl_data->u_min);
+    double u_max = lambda_max(bl_data, bl_data->u_max);
+    double v_min = lambda_min(bl_data, bl_data->v_min);
+    double v_max = lambda_max(bl_data, bl_data->v_max);
+
+    // Determine first/last overlapping grid chunks
+    int cx0 = (floor(u_min * theta + 0.5) + grid_size/2) / chunk_size;
+    int cx1 = (floor(u_max * theta + 0.5) + grid_size/2) / chunk_size;
+    int cy0 = (floor(v_min * theta + 0.5) + grid_size/2) / chunk_size;
+    int cy1 = (floor(v_max * theta + 0.5) + grid_size/2) / chunk_size;
+
+    int cy, cx;
+    for (cy = cy0; cy <= cy1; cy++) {
+      for (cx = cx0; cx <= cx1; cx++) {
+	// Lazy dynamically sized vector
+	int bcount = ++bins_count[cy*chunk_count + cx];
+	bins[cy*chunk_count + cx] =
+	  (struct bl_data **)realloc(bins[cy*chunk_count + cx], sizeof(void *) * bcount);
+	bins[cy*chunk_count + cx][bcount-1] = bl_data;
+      }
+    }
+  }
+  std::cout << "Bins processed: " << bins_size << "\n";
+}
 
 
 //W-Towers Wrapper.
@@ -215,7 +269,9 @@ __host__ cudaError_t wtowers_CUDA(const char* visfile, const char* wkernfile, in
 
   }
 
-  
+  struct bl_data ***bins;
+
+  bin_visibilities(vis_dat, bins, chunk_count_1d, wincrement, theta, grid_size, subgrid_size);
 
   
   return error;
