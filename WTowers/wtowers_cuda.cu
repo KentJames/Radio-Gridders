@@ -53,7 +53,7 @@ __host__ __device__ inline cuDoubleComplex cu_cexp_d (cuDoubleComplex z){
 
 //This is our Romein-style scatter gridder.
 __global__ void scatter_grid_kernel(struct vis_data *vis, struct w_kernel_data *wkern,
-				  cuDoubleComplex *uvgrid, int max_support, int grid_size){
+				    cuDoubleComplex *uvgrid, int max_support, int grid_size){
 
 
 
@@ -73,22 +73,27 @@ __global__ void fresnel_pattern_kernel(cuDoubleComplex *subimg, cuDoubleComplex 
 *******************************/
 
 // Doesn't seem like it should be much effort for NVIDIA to add this to CUDA?
+// Caveat Emptor: This is a lot slower than C's realloc.
 __host__  void *cudaReallocManaged(void *ptr, int size, int size_original){
-
+  
   void *new_ptr;
 
   //Malloc if passed NULL pointer.
   if(ptr == NULL){
-    cudaError_check(cudaMallocManaged(&new_ptr, size));
+    cudaError_check(cudaMallocManaged((void **)&new_ptr, size));
+    cudaError_check(cudaFree(ptr));
     return new_ptr;
   }
 
+  //Expand our pointers address space. Copy data over.
   if(size > size_original){
     
-    cudaError_check(cudaMallocManaged(&new_ptr, size));
-    cudaMemcpy(&new_ptr,&ptr,size_original,cudaMemcpyDefault);
+    cudaError_check(cudaMallocManaged((void **)&new_ptr, size));
+    cudaError_check(cudaMemcpy((void **)&new_ptr, (void **)&ptr,size_original,cudaMemcpyDefault));
+    cudaError_check(cudaFree(ptr));
     return new_ptr;
   }
+  //Otherwise shrink our memory space. Bin all data in process.
   else {
     return ptr;
   }
@@ -144,7 +149,7 @@ __host__ inline void bin_visibilities(struct vis_data *vis, struct bl_data ***bi
   cudaError_check(cudaMemset(bins, 0, bins_size));
     
   int bins_count_size = sizeof(int) * chunk_count * chunk_count;
-  int *bins_count = (int *)malloc(bins_count_size);
+  int *bins_count;
   cudaError_check(cudaMallocManaged(&bins_count, bins_count_size));
   cudaError_check(cudaMemset(bins_count, 0, bins_count_size));
   for (bl = 0; bl < vis->bl_count; bl++) {
@@ -167,8 +172,11 @@ __host__ inline void bin_visibilities(struct vis_data *vis, struct bl_data ***bi
       for (cx = cx0; cx <= cx1; cx++) {
 	// Lazy dynamically sized vector
 	int bcount = ++bins_count[cy*chunk_count + cx];
-	bins[cy*chunk_count + cx] =
-	  (struct bl_data **)realloc(bins[cy*chunk_count + cx], sizeof(void *) * bcount);
+	int bcount_p = bcount - bins_count[cy*chunk_count + cx];
+	
+	bins[cy*chunk_count + cx] = (struct bl_data **)cudaReallocManaged(bins[cy*chunk_count + cx],
+						       sizeof(void *) * bcount,
+						       sizeof(void *) * bcount_p);
 	bins[cy*chunk_count + cx][bcount-1] = bl_data;
       }
     }
