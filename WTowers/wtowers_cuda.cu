@@ -171,13 +171,20 @@ __host__ inline void bin_visibilities(struct vis_data *vis, struct bl_data ***bi
     for (cy = cy0; cy <= cy1; cy++) {
       for (cx = cx0; cx <= cx1; cx++) {
 	// Lazy dynamically sized vector
+
 	int bcount = ++bins_count[cy*chunk_count + cx];
 	int bcount_p = bcount - bins_count[cy*chunk_count + cx];
+
+	// This is a horrible way of doing this.
+	// Why can't NVIDIA re-implement realloc? Also C/C++ is the
+	// work of satan (all hail boost::any).
+	struct bl_data **bl_data_old = bins[cy*chunk_count + cx];
+	cudaError_check(cudaMallocManaged(&bins[cy*chunk_count + cx],sizeof(void *) * bcount, cudaMemAttachGlobal));
+	cudaError_check(cudaMemcpy((void **)bins[cy*chunk_count + cx], (void **)bl_data_old,sizeof(void *) * --bcount, cudaMemcpyDefault));
+	cudaError_check(cudaFree((void **)bl_data_old));
 	
-	bins[cy*chunk_count + cx] = (struct bl_data **)cudaReallocManaged(bins[cy*chunk_count + cx],
-						       sizeof(void *) * bcount,
-						       sizeof(void *) * bcount_p);
 	bins[cy*chunk_count + cx][bcount-1] = bl_data;
+
       }
     }
   }

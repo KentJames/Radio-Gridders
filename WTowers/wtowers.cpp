@@ -63,11 +63,15 @@ int main (int argc, char **argv) {
     
     std::cout << "\tDevice Number: " << i <<" \n";
     std::cout << "\t\tDevice Name: " << prop.name <<"\n";
-    std::cout << "\t\tTotal Memory: " << prop.totalGlobalMem << "\n";
+    std::cout << "\t\tTotal Memory: " << (double)prop.totalGlobalMem / (1024 * 1024) << " MB \n";
+    std::cout << "\t\tShared Memory (per block): " << (double)prop.sharedMemPerBlock / 1024 << " kB \n";
     std::cout << "\t\tClock Rate: " << prop.clockRate << "\n";
+    std::cout << "\t\tMultiprocessors: " << prop.multiProcessorCount << "\n";
     std::cout << "\t\tThreads Per MP: " << prop.maxThreadsPerMultiProcessor << "\n";
     std::cout << "\t\tThreads Per Block: " << prop.maxThreadsPerBlock << "\n";
     std::cout << "\t\tThreads Per Dim: " << prop.maxThreadsDim << "\n";
+    std::cout << "\t\tThreads Per Warp: " << prop.warpSize << "\n";
+    std::cout << "\t\tUnified Addressing: " << prop.unifiedAddressing << "\n";
     std::cout << "\n";
          
   }
@@ -179,8 +183,8 @@ int main (int argc, char **argv) {
   wtowers_CUDA(visfile_c, wkernfile_c, grid_size, theta, lambda, bl_min, bl_max,
 	       subgrid_size, subgrid_margin, winc);
 
-  
 
+  
   
 
 
