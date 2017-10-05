@@ -14,6 +14,10 @@
 
 __host__ __device__ inline cuDoubleComplex cu_cexp_d (cuDoubleComplex z);
 
+__device__ inline void scatter_grid_point(int max_supp, cuDoubleComplex *uvgrid,
+					  struct bl_data **bin, int myU, int myV,
+					  int subgrid_size, int subgrid_pitch);
+
 //Kernels
 
 __global__ void scatter_grid_kernel(struct vis_data *vis, struct w_kernel_data *wkern,
@@ -26,7 +30,7 @@ __global__ void fresnel_pattern_kernel(cuDoubleComplex *subimg, cuDoubleComplex 
 
 //Host Functions
 
-__host__ void *cudaReallocManaged(void *ptr, int size, int size_original);
+__host__ void cudaReallocManaged(void **ptr, int size, int size_original);
 
 __host__ inline double lambda_min(struct bl_data *bl_data, double u);
 
@@ -42,6 +46,8 @@ __host__ cudaError_t wtowers_CUDA(const char* visfile, const char* wkernfile, in
 			   double theta,  double lambda, double bl_min, double bl_max,
 			 int subgrid_size, int subgrid_margin, double witer);
 
-
+__host__ cudaError_t wprojection_CUDA(const char* visfile, const char* wkernfile, int grid_size,
+				      double theta,  double lambda, double bl_min, double bl_max, double wstep,
+				      int threads_per_block);
 
 #endif

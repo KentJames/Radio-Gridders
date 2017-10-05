@@ -15,7 +15,6 @@
 #include "wtowers_common.h"
 
 
-
 /*****************************
       CUDA Error Checker
 ******************************/
@@ -145,7 +144,7 @@ __device__ inline void scatter_grid_point(
 					  double wstep, // W-Increment 
 					  int subgrid_size, //The size of our w-towers subgrid.
 					  int subgrid_pitch, // Not too sure about ths one
-					  int theta, // Field of View Size
+					  double theta, // Field of View Size
 					  int offset_u, // Offset from top left of main grid to t.l of subgrid.
 					  int offset_v, // ^^^^
 					  int offset_w
@@ -171,7 +170,7 @@ __device__ inline void scatter_grid_point(
 	int grid_offset, sub_offset;
 	frac_coord(subgrid_size, wkern->size_x, wkern->oversampling,
 		   theta, bl_d, time, freq, offset_u, offset_v, &grid_offset, &sub_offset);
-	int u = floor(grid_offset / subgrid_size);
+	int u = floor((double)grid_offset / (double)subgrid_size); // Cast to double to make sure nvcc uses CUDA floor
 	int v = grid_offset % subgrid_size;
 
 	// Determine convolution point. This is basically just an
@@ -271,34 +270,6 @@ __global__ void fresnel_pattern_kernel(cuDoubleComplex *subimg, cuDoubleComplex 
 	  Host Functions
 *******************************/
 
-// Doesn't seem like it should be much effort for NVIDIA to add this to CUDA?
-// Caveat Emptor: This is a lot slower than C's realloc.
-__host__  void *cudaReallocManaged(void *ptr, int size, int size_original){
-  
-  void *new_ptr;
-
-  //Malloc if passed NULL pointer.
-  if(ptr == NULL){
-    cudaError_check(cudaMallocManaged((void **)&new_ptr, size));
-    cudaError_check(cudaFree(ptr));
-    return new_ptr;
-  }
-
-  //Expand our pointers address space. Copy data over.
-  if(size > size_original){
-    
-    cudaError_check(cudaMallocManaged((void **)&new_ptr, size));
-    cudaError_check(cudaMemcpy((void **)&new_ptr, (void **)&ptr,size_original,cudaMemcpyDefault));
-    cudaError_check(cudaFree(ptr));
-    return new_ptr;
-  }
-  //Otherwise shrink our memory space. Bin all data in process.
-  else {
-    return ptr;
-  }
-}
-
-
 __host__ inline double lambda_min(struct bl_data *bl_data, double u) {
     return u * (u < 0 ? bl_data->f_max : bl_data->f_min) / c;
 }
@@ -344,22 +315,22 @@ __host__ inline void bin_visibilities(struct vis_data *vis, struct bl_data ***bi
 
   // Bin in uv
   int bins_size = sizeof(void *) * chunk_count * chunk_count;
-  cudaError_check(cudaMallocManaged(&bins, bins_size));
+  cudaError_check(cudaMallocManaged(&bins, bins_size, cudaMemAttachGlobal));
   cudaError_check(cudaMemset(bins, 0, bins_size));
-    
+  
   int bins_count_size = sizeof(int) * chunk_count * chunk_count;
   int *bins_count;
-  cudaError_check(cudaMallocManaged(&bins_count, bins_count_size));
+  cudaError_check(cudaMallocManaged(&bins_count, bins_count_size, cudaMemAttachGlobal));
   cudaError_check(cudaMemset(bins_count, 0, bins_count_size));
   for (bl = 0; bl < vis->bl_count; bl++) {
-
+    
     // Determine bounds (could be more precise, future work...)
     struct bl_data *bl_data = &vis->bl[bl];
     double u_min = lambda_min(bl_data, bl_data->u_min);
     double u_max = lambda_max(bl_data, bl_data->u_max);
     double v_min = lambda_min(bl_data, bl_data->v_min);
     double v_max = lambda_max(bl_data, bl_data->v_max);
-
+    
     // Determine first/last overlapping grid chunks
     int cx0 = (floor(u_min * theta + 0.5) + grid_size/2) / chunk_size;
     int cx1 = (floor(u_max * theta + 0.5) + grid_size/2) / chunk_size;
@@ -381,7 +352,6 @@ __host__ inline void bin_visibilities(struct vis_data *vis, struct bl_data ***bi
 	cudaError_check(cudaMallocManaged(&bins[cy*chunk_count + cx],sizeof(void *) * bcount, cudaMemAttachGlobal));
 	cudaError_check(cudaMemcpy((void **)bins[cy*chunk_count + cx], (void **)bl_data_old,sizeof(void *) * --bcount, cudaMemcpyDefault));
 	cudaError_check(cudaFree((void **)bl_data_old));
-	
 	bins[cy*chunk_count + cx][bcount-1] = bl_data;
 
       }
@@ -410,7 +380,7 @@ __host__ cudaError_t wtowers_CUDA(const char* visfile, const char* wkernfile, in
   cudaError_check(cudaMallocManaged((void **)&wkern_dat, sizeof(struct w_kernel_data), cudaMemAttachGlobal));
 
   int error_hdf5;
-  error_hdf5 = load_vis_CUDA(visfile,vis_dat,bl_min,bl_max);
+  error_hdf5 = load_vis_CUDA(visfile,vis_dat,bl_min,1000);
   if (error_hdf5) {
     std::cout << "Failed to Load Visibilities \n";
     return error;
@@ -487,7 +457,62 @@ __host__ cudaError_t wtowers_CUDA(const char* visfile, const char* wkernfile, in
 
   bin_visibilities(vis_dat, bins, chunk_count_1d, wincrement, theta, grid_size, subgrid_size);
 
+  // Lets get gridding!
+  for(int chunk = 0; chunk < (chunk_count_1d + 1) * (chunk_count_1d + 1); ++chunk){
+
+    
+
+  }
   
   return error;
+
+}
+
+
+__host__ cudaError_t wprojection_CUDA(const char* visfile, const char* wkernfile, int grid_size,
+				      double theta,  double lambda, double bl_min, double bl_max, double wstep,
+				      int threads_per_block){
+
+//For Benchmarking.
+  
+  cudaError_t error;q
+  cudaEvent_t start, stop;
+  float elapsedTime;
+
+  // Load visibility and w-kernel data from HDF5 files.
+  
+  struct vis_data *vis_dat;
+  struct w_kernel_data *wkern_dat;
+
+  cudaError_check(cudaMallocManaged((void **)&vis_dat, sizeof(struct vis_data), cudaMemAttachGlobal));
+  cudaError_check(cudaMallocManaged((void **)&wkern_dat, sizeof(struct w_kernel_data), cudaMemAttachGlobal));
+
+  int error_hdf5;
+  error_hdf5 = load_vis_CUDA(visfile,vis_dat,bl_min,1000);
+  if (error_hdf5) {
+    std::cout << "Failed to Load Visibilities \n";
+    return error;
+  }
+  error_hdf5 = load_wkern_CUDA(wkernfile, theta, wkern_dat);
+  if (error_hdf5) {
+    std::cout << "Failed to Load W-Kernels \n";
+    return error;
+  }
+
+
+  //Allocate our main grid.
+  
+  int total_gs = grid_size * grid_size;
+  
+  cuDoubleComplex *grid_dev, *grid_host;
+  cudaError_check(cudaMalloc((void **)&grid_dev, total_gs * sizeof(cuDoubleComplex)));
+  cudaError_check(cudaMallocHost((void **)&grid_host, total_gs * sizeof(cuDoubleComplex)));
+
+  int blocks = total_gs / 1024;
+  
+  scatter_grid_kernel <<< blocks, threads_per_block >>> (vis_dat->bl,vis_dat->bl_count,
+					       vis_dat, wkern_dat, grid_dev, wkern_dat->size_x,
+					       grid_size, grid_size, wstep, theta, 0, 0, 0);
+  
 
 }
