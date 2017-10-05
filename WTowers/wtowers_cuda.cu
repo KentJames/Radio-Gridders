@@ -230,18 +230,39 @@ __device__ inline void scatter_grid_point(
 *******************************/
 
 //This is our Romein-style scatter gridder.
-__global__ void scatter_grid_kernel(struct vis_data *vis, struct w_kernel_data *wkern,
-				    cuDoubleComplex *uvgrid, int max_support, int grid_size){
+__global__ void scatter_grid_kernel(struct bl_data **bin, // Baseline bin
+				    int bl_count, // No. of baselines
+				    struct vis_data *vis, // No. of visibilities
+				    struct w_kernel_data *wkern, // No. of wkernels
+				    cuDoubleComplex *uvgrid, //Our UV-Grid
+				    int max_support, //  Convolution size
+				    int subgrid_size, // Subgrid size
+				    int subgrid_pitch, // Subgrid pitch (what is this?)
+				    double wstep, // W-Increment
+				    double theta, // Field of View
+				    int offset_u, // Top left offset from top left main grid
+				    int offset_v, // ^^^^
+				    int offset_w // W Offset
+				    ){
+  
+  for(int i = threadIdx.x; i < max_support * max_support; i += blockDim.x){
 
+    int myU = i % max_support;
+    int myV = floor((double)i / (double)max_support); // Double cast ensures nvcc uses CUDA floor.
 
+    scatter_grid_point(bin, bl_count, uvgrid, wkern, max_support, myU, myV, wstep,
+		       subgrid_size, subgrid_pitch, theta, offset_u, offset_v, offset_w);
+		       
+  }
+  
 
 }
 
-
+//For multiplying the fresnel pattern.
 __global__ void fresnel_pattern_kernel(cuDoubleComplex *subimg, cuDoubleComplex *subgrid,
 				       cuDoubleComplex *fresnel, int subgrid_size, int w_plane){
 
-
+  
 
 }
 				       
