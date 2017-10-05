@@ -35,6 +35,25 @@ inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=t
         Device Functions
  *****************************/
 
+#if !defined(__CUDA_ARCH__) || __CUDA_ARCH__ >= 600
+
+
+#else //Pre-pascal devices.
+
+__device__ double atomicAdd(double* address, double val)
+{
+    unsigned long long int* address_as_ull = (unsigned long long int*)address;
+    unsigned long long int old = *address_as_ull, assumed;
+    do {
+        assumed = old;
+        old = atomicCAS(address_as_ull, assumed,
+                __double_as_longlong(val + __longlong_as_double(assumed)));
+    } while (assumed != old);
+    return __longlong_as_double(old);
+}
+
+#endif
+
 __host__ __device__ inline cuDoubleComplex cu_cexp_d (cuDoubleComplex z){
 
   cuDoubleComplex res;
@@ -43,6 +62,165 @@ __host__ __device__ inline cuDoubleComplex cu_cexp_d (cuDoubleComplex z){
   res.x *= t;
   res.y *= t;
   return res;
+
+}
+
+__host__ __device__ inline static double uvw_lambda(struct bl_data *bl_data,
+				  int time, int freq, int uvw) {
+    return bl_data->uvw[3*time+uvw] * bl_data->freq[freq] / c;
+  }
+
+
+
+__host__ __device__ inline static int2 getcoords_xy(double u, double v, int grid_size,
+				    double theta, int max_support){
+
+  int2 xy;
+
+  xy.x = ((int)floor(theta * u + 0.5) + (grid_size/2)) % max_support;
+  xy.y = ((int)floor(theta * v + 0.5) + (grid_size/2)) % max_support;
+
+  return xy;
+    
+
+}
+
+
+__host__ __device__ inline static void frac_coord(int grid_size, int kernel_size, int oversample,
+                              double theta,
+                              struct bl_data *bl_data,
+                              int time, int freq,
+                              double d_u, double d_v,
+                              int *grid_offset, int *sub_offset) {
+#ifdef ASSUME_UVW_0
+    double x = 0, y = 0;
+#else
+    double x = theta * (uvw_lambda(bl_data, time, freq, 0) - d_u);
+    double y = theta * (uvw_lambda(bl_data, time, freq, 1) - d_v);
+#endif
+    int flx = (int)floor(x + .5 / oversample);
+    int fly = (int)floor(y + .5 / oversample);
+    int xf = (int)floor((x - (double)flx) * oversample + .5);
+    int yf = (int)floor((y - (double)fly) * oversample + .5);
+    *grid_offset =
+        (fly+grid_size/2-kernel_size/2)*grid_size +
+        (flx+grid_size/2-kernel_size/2);
+    *sub_offset = kernel_size * kernel_size * (yf*oversample + xf);
+}
+
+
+//From Kyrills implementation in SKA/RC
+__device__ inline void scatter_grid_add(cuDoubleComplex *uvgrid, int grid_size, int grid_pitch,
+					int grid_point_u, int grid_point_v, cuDoubleComplex sum){
+
+  
+  // Atomically add to grid. This is the bottleneck of this kernel.
+  if (grid_point_u < 0 || grid_point_u >= grid_size ||
+      grid_point_v < 0 || grid_point_v >= grid_size)
+    return;
+
+  // Bottom half? Mirror
+  if (grid_point_u >= grid_size / 2) {
+    grid_point_v = grid_size - grid_point_v - 1;
+    grid_point_u = grid_size - grid_point_u - 1;
+  }
+
+  // Add to grid. This is the bottleneck of the entire kernel
+  atomicAdd(&uvgrid[grid_point_u + grid_pitch*grid_point_v].x, sum.x);
+  atomicAdd(&uvgrid[grid_point_u + grid_pitch*grid_point_v].y, sum.y);
+
+}
+
+
+//From Kyrills Implementation in SKA/RC. Modified to suit our data format.
+//Assumes pre-binned (in u/v) data
+__device__ inline void scatter_grid_point(
+					  struct bl_data **bin, // Our bins of UV Data
+					  int bl_count, // Number of baselines.
+					  cuDoubleComplex *uvgrid, // Our main UV Grid
+					  struct w_kernel_data *wkern, //Our W-Kernel
+					  int max_supp, // Max size of W-Kernel
+					  int myU, //Our assigned u/v points.
+					  int myV, // ^^^
+					  double wstep, // W-Increment 
+					  int subgrid_size, //The size of our w-towers subgrid.
+					  int subgrid_pitch, // Not too sure about ths one
+					  int theta, // Field of View Size
+					  int offset_u, // Offset from top left of main grid to t.l of subgrid.
+					  int offset_v, // ^^^^
+					  int offset_w
+					  ){ 
+
+  int grid_point_u = myU, grid_point_v = myV;
+  cuDoubleComplex sum  = make_cuDoubleComplex(0.0,0.0);
+  
+  //  for (int i = 0; i < visibilities; i++) {
+  int bl, time, freq;
+  for (bl = 0; bl < bl_count; ++bl){
+    struct bl_data *bl_d = bin[bl];
+    for (time = 0; time < bl_d->time_count; ++time){
+      for(freq = 0; freq < bl_d->freq_count; ++freq){
+	// Load pre-calculated positions
+	//int u = uvo[i].u, v = uvo[i].v;
+	//	int u = (int)uvw_lambda(bl_d, time, freq, 0);
+	//int v = (int)uvw_lambda(bl_d, time, freq, 1);
+	double w = uvw_lambda(bl_d, time, freq, 2) - offset_w;
+	int w_plane = fabs(w/wstep);
+
+	//i
+	int grid_offset, sub_offset;
+	frac_coord(subgrid_size, wkern->size_x, wkern->oversampling,
+		   theta, bl_d, time, freq, offset_u, offset_v, &grid_offset, &sub_offset);
+	int u = floor(grid_offset / subgrid_size);
+	int v = grid_offset % subgrid_size;
+
+	// Determine convolution point. This is basically just an
+	// optimised way to calculate
+	//   myConvU = (myU - u) % max_supp
+	//   myConvV = (myV - v) % max_supp
+	//	int2 xy = getcoords_xy(u,v,subgrid_size,theta,max_supp);
+	int myConvU = ((int)u - myU) % max_supp;
+	int myConvV = ((int)v - myV) % max_supp;
+	if (myConvU < 0) myConvU += max_supp;
+	if (myConvV < 0) myConvV += max_supp;
+
+	// Determine grid point. Because of the above we know here that
+	//   myGridU % max_supp = myU
+	//   myGridV % max_supp = myV
+	int myGridU = u + myConvU
+	  , myGridV = v + myConvV;
+
+	// Grid point changed?
+	if (myGridU != grid_point_u || myGridV != grid_point_v) {
+	  // Atomically add to grid. This is the bottleneck of this kernel.
+	  scatter_grid_add(uvgrid, subgrid_size, subgrid_pitch, grid_point_u, grid_point_v, sum);
+	  // Switch to new point
+	  sum = make_cuDoubleComplex(0.0, 0.0);
+	  grid_point_u = myGridU;
+	  grid_point_v = myGridV;
+	}
+
+
+	//TODO: Re-do the w-kernel/gcf for our data.
+
+	short supp = short(wkern->size_x);	
+	//	cuDoubleComplex px;
+	cuDoubleComplex px = *(cuDoubleComplex*)&wkern->kern_by_w[w_plane].data[sub_offset + myConvU * supp + myConvV];
+	//memcpy(&px, &pxc, sizeof(double __complex__));
+	
+	// Sum up
+	cuDoubleComplex vi = *(cuDoubleComplex*)&bl_d->vis[time*bl_d->freq_count+freq];
+	//memcpy(&vi,&visc,sizeof(double __complex__));
+	
+	if (grid_point_u >= subgrid_size / 2)
+	  vi.y = -vi.y;
+	sum = cuCfma(px, vi, sum);
+      }
+    }
+  }
+
+  // Add remaining sum to grid
+  scatter_grid_add(uvgrid, subgrid_size, subgrid_pitch, grid_point_u, grid_point_v, sum);
 
 }
 

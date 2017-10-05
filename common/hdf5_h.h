@@ -110,12 +110,6 @@ extern "C" {
   };
 
   void init_dtype_cpx();
-
-  inline static double uvw_lambda(struct bl_data *bl_data,
-				  int time, int freq, int uvw) {
-    return bl_data->uvw[3*time+uvw] * bl_data->freq[freq] / c;
-  }
-
   
 
   int load_vis_CUDA(const char *filename, struct vis_data *vis,
