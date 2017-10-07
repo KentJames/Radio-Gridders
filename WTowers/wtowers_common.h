@@ -47,7 +47,7 @@ __host__ cudaError_t wtowers_CUDA(const char* visfile, const char* wkernfile, in
 			 int subgrid_size, int subgrid_margin, double witer);
 
 __host__ cudaError_t wprojection_CUDA(const char* visfile, const char* wkernfile, int grid_size,
-				      double theta,  double lambda, double bl_min, double bl_max, double wstep,
+				      double theta,  double lambda, double bl_min, double bl_max, 
 				      int threads_per_block);
 
 #endif

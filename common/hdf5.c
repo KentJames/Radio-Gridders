@@ -240,7 +240,7 @@ int load_vis_CUDA(const char *filename, struct vis_data *vis,
             double len = sqrt(data.uvw[3*i+0] * data.uvw[3*i+0] +
                               data.uvw[3*i+1] * data.uvw[3*i+1]);
             if (len < min_len || len >= max_len) {
-                printf("asd %g\n", len);
+	      //printf("asd %g\n", len);
                 continue;
             }
 
@@ -556,7 +556,7 @@ int load_vis(const char *filename, struct vis_data *vis,
             double len = sqrt(data.uvw[3*i+0] * data.uvw[3*i+0] +
                               data.uvw[3*i+1] * data.uvw[3*i+1]);
             if (len < min_len || len >= max_len) {
-                printf("asd %g\n", len);
+	      //printf("asd %g\n", len);
                 continue;
             }
 

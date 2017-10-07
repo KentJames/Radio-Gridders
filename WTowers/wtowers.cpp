@@ -44,6 +44,9 @@ void showHelp(){
   std::cout<<"\t-subgrid             W-Towers Subgrid Size\n";
   std::cout<<"\t-margin              W-Towers Margin Size\n";
   std::cout<<"\t-winc                W-Plane Increment Size\n";
+  std::cout<<"\t-bl_min              Minimum Baseline Distance (wavelengths)\n";
+  std::cout<<"\t-bl_max              Maximum Baseline Distance (wavelengths)\n";
+  std::cout<<"\t-wproj               W-Projection Mode\n";
   std::cout<<"\n\n\n";
 }
 
@@ -54,24 +57,28 @@ int main (int argc, char **argv) {
   std::cout << "CUDA System Information: \n\n";
   int numberofgpus;
 
+  
   cudaGetDeviceCount(&numberofgpus);
-  std::cout << " Number of GPUs Detected: " << numberofgpus << "\n\n"; 
+  std::cout << " Number of GPUs Detected: " << numberofgpus << "\n\n";
+
+  cudaDeviceProp *prop = (cudaDeviceProp*)malloc(sizeof(cudaDeviceProp) * numberofgpus);
+  
   for(int i=0; i<numberofgpus;i++){
 
-    cudaDeviceProp prop;
-    cudaGetDeviceProperties(&prop,i);
+
+    cudaGetDeviceProperties(&prop[i],i);
     
     std::cout << "\tDevice Number: " << i <<" \n";
-    std::cout << "\t\tDevice Name: " << prop.name <<"\n";
-    std::cout << "\t\tTotal Memory: " << (double)prop.totalGlobalMem / (1024 * 1024) << " MB \n";
-    std::cout << "\t\tShared Memory (per block): " << (double)prop.sharedMemPerBlock / 1024 << " kB \n";
-    std::cout << "\t\tClock Rate: " << prop.clockRate << "\n";
-    std::cout << "\t\tMultiprocessors: " << prop.multiProcessorCount << "\n";
-    std::cout << "\t\tThreads Per MP: " << prop.maxThreadsPerMultiProcessor << "\n";
-    std::cout << "\t\tThreads Per Block: " << prop.maxThreadsPerBlock << "\n";
-    std::cout << "\t\tThreads Per Dim: " << prop.maxThreadsDim << "\n";
-    std::cout << "\t\tThreads Per Warp: " << prop.warpSize << "\n";
-    std::cout << "\t\tUnified Addressing: " << prop.unifiedAddressing << "\n";
+    std::cout << "\t\tDevice Name: " << prop->name <<"\n";
+    std::cout << "\t\tTotal Memory: " << (double)prop->totalGlobalMem / (1024 * 1024) << " MB \n";
+    std::cout << "\t\tShared Memory (per block): " << (double)prop->sharedMemPerBlock / 1024 << " kB \n";
+    std::cout << "\t\tClock Rate: " << prop->clockRate << "\n";
+    std::cout << "\t\tMultiprocessors: " << prop->multiProcessorCount << "\n";
+    std::cout << "\t\tThreads Per MP: " << prop->maxThreadsPerMultiProcessor << "\n";
+    std::cout << "\t\tThreads Per Block: " << prop->maxThreadsPerBlock << "\n";
+    std::cout << "\t\tThreads Per Dim: " << prop->maxThreadsDim << "\n";
+    std::cout << "\t\tThreads Per Warp: " << prop->warpSize << "\n";
+    std::cout << "\t\tUnified Addressing: " << prop->unifiedAddressing << "\n";
     std::cout << "\n";
          
   }
@@ -92,7 +99,7 @@ int main (int argc, char **argv) {
   char *akernfile = NULL;
 
   double bl_min = 0;
-  double bl_max = 1.7976931348623158e+308 ;
+  double bl_max = 1.7976931348623158e+308 ; // By default set to double limit.
   
   // Parameters
   if (checkCmdLineFlag(argc, (const char **)argv, "help")) {
@@ -149,9 +156,17 @@ int main (int argc, char **argv) {
 
   }
 
-  if(checkCmdLineFlag(argc, (const char **) argv, "subgrid") == 0 ||
+  if (checkCmdLineFlag(argc, (const char **) argv, "bl_min"))
+    bl_min = getCmdLineArgumentInt(argc, (const char **) argv, "bl_min");
+
+  if (checkCmdLineFlag(argc, (const char **) argv, "bl_max"))
+    bl_max = getCmdLineArgumentInt(argc, (const char **) argv, "bl_max");
+
+
+  if((checkCmdLineFlag(argc, (const char **) argv, "subgrid") == 0 ||
      checkCmdLineFlag(argc, (const char **) argv, "margin") == 0 ||
-     checkCmdLineFlag(argc, (const char **) argv, "winc") == 0) {
+     checkCmdLineFlag(argc, (const char **) argv, "winc") == 0) &&
+     !checkCmdLineFlag(argc, (const char **) argv, "wproj")) {
 
     std::cout << "Missing W-Towers Parameters. Check subgrid/margin/winc\n";
     showHelp();
@@ -178,12 +193,20 @@ int main (int argc, char **argv) {
   //May as well allocate our host image now for when we move it back.
   image_host = (cuDoubleComplex*)malloc(grid_size * grid_size * sizeof(cuDoubleComplex));
 
-
-  //Call our W-Towers wrapper.
-  wtowers_CUDA(visfile_c, wkernfile_c, grid_size, theta, lambda, bl_min, bl_max,
+  //  int threads_block = prop[1].maxThreadsPerBlock
+  
+  if(checkCmdLineFlag(argc, (const char **) argv, "wproj")){
+    //Call our W-Projection wrapper.
+    std::cout << "W-Projection Gridder... \n";
+    wprojection_CUDA(visfile_c, wkernfile_c, grid_size, theta, lambda,
+		     bl_min, bl_max, prop[0].maxThreadsPerBlock/2);
+  }
+  else {
+    //Call our W-Towers wrapper.
+    std::cout << "W-Towers Gridder... \n";
+    wtowers_CUDA(visfile_c, wkernfile_c, grid_size, theta, lambda, bl_min, bl_max,
 	       subgrid_size, subgrid_margin, winc);
-
-
+  }
   
   
 
