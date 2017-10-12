@@ -295,6 +295,35 @@ __host__ inline void fft_shift(cuDoubleComplex *uvgrid, int grid_size) {
   }
 }
 
+__host__ inline void make_hermitian(cuDoubleComplex *uvgrid, int grid_size){
+
+  cuDoubleComplex *p0;
+
+  if (grid_size % 2 == 0) {
+    p0 = uvgrid + grid_size + 1;
+  }
+  else {
+    p0 = uvgrid;
+  }
+
+  cuDoubleComplex *p1 = uvgrid + grid_size * grid_size - 1;
+
+  while (p0 < p1) {
+    cuDoubleComplex g0 = *p0;
+
+    cuCadd(*p0++,cuConj(*p1));
+    cuCadd(*p1--,cuConj(g0));
+    //    *p0++ += cuConj(*p1);
+    //*p1-- += cuConj(g0);
+  }
+
+  assert ( p0 == p1 && p0 == uvgrid + (grid_size + 1) * (grid_size/2));
+  cuCadd(*p0,cuConj(*p0));
+  //  *p0 += cuConj(*p0);
+
+
+}
+
 __host__ inline void bin_visibilities(struct vis_data *vis, struct bl_data ***bins,
 				      int chunk_count, int wincrement, double theta,
 				      int grid_size, int chunk_size){
@@ -570,6 +599,7 @@ __host__ cudaError_t wprojection_CUDA(const char* visfile, const char* wkernfile
   cudaError_check(cudaMemcpy(grid_host, grid_dev, total_gs * sizeof(cuDoubleComplex),
 			     cudaMemcpyDeviceToHost));  
   fft_shift(grid_host, grid_size);
+  make_hermitian(grid_host, grid_size);
   cudaError_check(cudaMemcpy(grid_dev, grid_host, total_gs * sizeof(cuDoubleComplex),
 			     cudaMemcpyHostToDevice));
 
