@@ -198,14 +198,16 @@ int main (int argc, char **argv) {
   if(checkCmdLineFlag(argc, (const char **) argv, "wproj")){
     //Call our W-Projection wrapper.
     std::cout << "W-Projection Gridder... \n";
+    std::cout << "BL Max: " << bl_max << " BL Min: " << bl_min << " \n";
     wprojection_CUDA(visfile_c, wkernfile_c, grid_size, theta, lambda,
-		     bl_min, bl_max, prop[0].maxThreadsPerBlock/2);
+		     bl_min, bl_max, prop[0].maxThreadsPerBlock);
   }
   else {
     //Call our W-Towers wrapper.
     std::cout << "W-Towers Gridder... \n";
     wtowers_CUDA(visfile_c, wkernfile_c, grid_size, theta, lambda, bl_min, bl_max,
 	       subgrid_size, subgrid_margin, winc);
+
   }
   
   

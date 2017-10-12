@@ -110,7 +110,10 @@ extern "C" {
   };
 
   void init_dtype_cpx();
-  
+
+  int free_vis(struct vis_data *vis);
+
+  int free_vis_CUDA(struct vis_data *vis);
 
   int load_vis_CUDA(const char *filename, struct vis_data *vis,
 		    double min_len, double max_len);

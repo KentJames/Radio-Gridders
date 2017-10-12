@@ -126,10 +126,10 @@ __device__ inline void scatter_grid_add(cuDoubleComplex *uvgrid, int grid_size, 
     return;
 
   // Bottom half? Mirror
-  if (grid_point_u >= grid_size / 2) {
-    grid_point_v = grid_size - grid_point_v - 1;
-    grid_point_u = grid_size - grid_point_u - 1;
-  }
+  //  if (grid_point_u >= grid_size / 2) {
+  //  grid_point_v = grid_size - grid_point_v - 1;
+  //  grid_point_u = grid_size - grid_point_u - 1;
+  //}
 
   // Add to grid. This is the bottleneck of the entire kernel
   atomicAdd(&uvgrid[grid_point_u + grid_pitch*grid_point_v].x, sum.x);
@@ -159,6 +159,8 @@ __device__ inline void scatter_grid_point(
 
   int grid_point_u = myU, grid_point_v = myV;
   cuDoubleComplex sum  = make_cuDoubleComplex(0.0,0.0);
+
+  short supp = short(wkern->size_x);
   
   //  for (int i = 0; i < visibilities; i++) {
   int bl, time, freq;
@@ -171,20 +173,20 @@ __device__ inline void scatter_grid_point(
 	//	int u = (int)uvw_lambda(bl_d, time, freq, 0);
 	//int v = (int)uvw_lambda(bl_d, time, freq, 1);
 	double w = uvw_lambda(bl_d, time, freq, 2) - offset_w;
-	int w_plane = fabs(w/wstep);
+	int w_plane = fabs((w - wkern->w_min) / (wkern->w_step + .5));
 	int grid_offset, sub_offset;
 	frac_coord(subgrid_size, wkern->size_x, wkern->oversampling,
 		   theta, bl_d, time, freq, offset_u, offset_v, &grid_offset, &sub_offset);
-	int u = floor((double)grid_offset / (double)subgrid_size); // Cast to double to make sure nvcc uses CUDA floor
-	int v = grid_offset % subgrid_size;
+	int u = grid_offset % subgrid_size; 
+	int v = grid_offset / subgrid_size;
 
 	// Determine convolution point. This is basically just an
 	// optimised way to calculate
 	//   myConvU = (myU - u) % max_supp
 	//   myConvV = (myV - v) % max_supp
 	//	int2 xy = getcoords_xy(u,v,subgrid_size,theta,max_supp);
-	int myConvU = ((int)u - myU) % max_supp;
-	int myConvV = ((int)v - myV) % max_supp;
+	int myConvU = (u - myU) % max_supp;
+	int myConvV = (v - myV) % max_supp;
 	if (myConvU < 0) myConvU += max_supp;
 	if (myConvV < 0) myConvV += max_supp;
 
@@ -203,11 +205,7 @@ __device__ inline void scatter_grid_point(
 	  grid_point_u = myGridU;
 	  grid_point_v = myGridV;
 	}
-
-
 	//TODO: Re-do the w-kernel/gcf for our data.
-
-	short supp = short(wkern->size_x);	
 	//	cuDoubleComplex px;
 	cuDoubleComplex px = *(cuDoubleComplex*)&wkern->kern_by_w[w_plane].data[sub_offset + myConvU * supp + myConvV];
 	//memcpy(&px, &pxc, sizeof(double __complex__));
@@ -216,8 +214,8 @@ __device__ inline void scatter_grid_point(
 	cuDoubleComplex vi = *(cuDoubleComplex*)&bl_d->vis[time*bl_d->freq_count+freq];
 	//memcpy(&vi,&visc,sizeof(double __complex__));
 	
-	if (grid_point_u >= subgrid_size / 2)
-	  vi.y = -vi.y;
+	//if (grid_point_u >= subgrid_size / 2)
+	//  vi.y = -vi.y;
 	sum = cuCfma(px, vi, sum);
       }
     }
@@ -250,16 +248,14 @@ __global__ void scatter_grid_kernel(struct bl_data **bin, // Baseline bin
 				    ){
   
   for(int i = threadIdx.x; i < max_support * max_support; i += blockDim.x){
-
+    //int i = threadIdx.x + blockIdx.x * blockDim.x;
     int myU = i % max_support;
-    int myV = floor((double)i / (double)max_support); // Double cast ensures nvcc uses CUDA floor.
+    int myV = i / max_support;
 
     scatter_grid_point(bin, bl_count, uvgrid, wkern, max_support, myU, myV, wstep,
 		       subgrid_size, subgrid_pitch, theta, offset_u, offset_v, offset_w);
 		       
   }
-  
-
 }
 
 //For multiplying the fresnel pattern.
@@ -297,7 +293,6 @@ __host__ inline void fft_shift(cuDoubleComplex *uvgrid, int grid_size) {
       uvgrid[ix1] = temp;
     }
   }
-
 }
 
 __host__ inline void bin_visibilities(struct vis_data *vis, struct bl_data ***bins,
@@ -364,7 +359,6 @@ __host__ inline void bin_visibilities(struct vis_data *vis, struct bl_data ***bi
   }
   std::cout << "Bins processed: " << bins_size << "\n";
 }
-
 
 //W-Towers Wrapper.
 __host__ cudaError_t wtowers_CUDA(const char* visfile, const char* wkernfile, int grid_size,
@@ -513,7 +507,7 @@ __host__ cudaError_t wprojection_CUDA(const char* visfile, const char* wkernfile
   cudaError_check(cudaMalloc((void **)&grid_dev, total_gs * sizeof(cuDoubleComplex)));
   cudaError_check(cudaMallocHost((void **)&grid_host, total_gs * sizeof(cuDoubleComplex)));
 
-  int blocks = total_gs / 512;
+  int blocks = total_gs / 256;
 
   //struct bl_data ***bins;
   //bin_visibilities(vis_dat, bins, 1, wkern_dat->w_step, theta, grid_size, grid_size);
@@ -524,7 +518,10 @@ __host__ cudaError_t wprojection_CUDA(const char* visfile, const char* wkernfile
 
   cudaEventCreate(&start);
   cudaEventRecord(start, 0);
-  scatter_grid_kernel <<< blocks, 512 >>> (bl_d,vis_dat->bl_count,
+
+  
+  
+  scatter_grid_kernel <<< 256 , 32 >>> (bl_d,vis_dat->bl_count,
 					       vis_dat, wkern_dat, grid_dev, wkern_dat->size_x,
 					       grid_size, grid_size, wkern_dat->w_step, theta, 0, 0, 0);
   cudaEventCreate(&stop);
@@ -535,7 +532,50 @@ __host__ cudaError_t wprojection_CUDA(const char* visfile, const char* wkernfile
 
   std::cout << "Scatter Gridder Elapsed Time: " << elapsedTime << "\n";
 
+
+  free_vis_CUDA(vis_dat);
+
+  
+
   //Create FFT Plans for our frequent fft's.
+
+
+  cudaError_check(cudaMemcpy(grid_host, grid_dev, total_gs * sizeof(cuDoubleComplex),
+			     cudaMemcpyDeviceToHost));
+
+  //Write Image to disk on host.
+
+  std::ofstream image_pref ("pre_fft.out", std::ofstream::out | std::ofstream::binary);
+  std::cout << "Writing Image to File... \n";
+
+  double *row;
+  cudaError_check(cudaMallocHost(&row, grid_size * sizeof(double)));
+
+      
+  for(int i = 0; i < grid_size; ++i){
+
+    for(int j = 0; j< grid_size; ++j){
+      
+      row[j] = cuCreal(grid_host[i*grid_size + j]);
+    }
+    image_pref.write((char*)row, sizeof(double) * grid_size);
+  }
+
+  image_pref.close();
+
+  //This needs a kernel at some point.
+
+  
+  //Transfer back to host.
+  cudaError_check(cudaMemcpy(grid_host, grid_dev, total_gs * sizeof(cuDoubleComplex),
+			     cudaMemcpyDeviceToHost));  
+  fft_shift(grid_host, grid_size);
+  cudaError_check(cudaMemcpy(grid_dev, grid_host, total_gs * sizeof(cuDoubleComplex),
+			     cudaMemcpyHostToDevice));
+
+
+  
+  
   
   std::cout << "Executing iFFT back to Image Space... \n";
   
@@ -553,13 +593,13 @@ __host__ cudaError_t wprojection_CUDA(const char* visfile, const char* wkernfile
   std::ofstream image_f ("image.out", std::ofstream::out | std::ofstream::binary);
   std::cout << "Writing Image to File... \n";
 
-  double *row;
-  cudaError_check(cudaMallocHost(&row, grid_size * sizeof(double)));
+  //double *row;
+  //cudaError_check(cudaMallocHost(&row, grid_size * sizeof(double)));
 
       
-  for(int i = 0; i < grid_size; i++){
+  for(int i = 0; i < grid_size; ++i){
 
-    for(int j = 0; j< grid_size; j++){
+    for(int j = 0; j< grid_size; ++j){
 
       row[j] = cuCreal(grid_host[i*grid_size + j]);
 

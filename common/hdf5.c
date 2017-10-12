@@ -9,6 +9,17 @@
 
 #include "hdf5_h.h"
 
+
+#define cudaError_check(ans) { gpuAssert((ans), __FILE__, __LINE__); }
+inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort)
+{
+   if (code != cudaSuccess) 
+   {
+      fprintf(stderr,"GPUassert: %s %s %d\n", cudaGetErrorString(code), file, line);
+      if (abort) exit(code);
+   }
+}
+
 // Complex data type
 hid_t dtype_cpx;
 
@@ -30,6 +41,51 @@ struct bl_stats {
     double t_min, t_max;
     double f_min, f_max;
 };
+
+int free_vis(struct vis_data *vis){
+
+  for(int bl_n = 0; bl_n< vis->bl_count; ++bl_n){
+
+    struct bl_data *bli = (vis->bl)+bl_n;
+
+    free(bli->time);
+    free(bli->freq);
+    free(bli->uvw);
+    free(bli->vis);
+    free(bli->awkern);
+  }
+
+  free(vis->bl);
+  free(vis);
+
+  return 0;
+
+}
+
+//For functions allocated using CUDA API
+int free_vis_CUDA(struct vis_data *vis){
+
+
+
+  for(int bl_n = 0; bl_n< vis->bl_count; ++bl_n){
+
+    struct bl_data *bli = (vis->bl)+bl_n;
+
+    cudaFree(bli->time);
+    cudaFree(bli->freq);
+    cudaFree(bli->uvw);
+    cudaFree(bli->vis);
+    cudaFree(bli->awkern);
+  }
+
+  cudaFree(vis->bl);
+  cudaFree(vis);
+
+  return 0;
+
+  
+
+}
 
 static bool load_vis_group_CUDA(hid_t vis_g, struct bl_data *bl,
                            int a1, int a2,
@@ -665,6 +721,7 @@ int load_vis(const char *filename, struct vis_data *vis,
 
     return 0;
 }
+
 
 #ifdef VAR_W_KERN
 int load_wkern_CUDA(const char *filename, double theta, struct var_w_kernel_data *wkern){
