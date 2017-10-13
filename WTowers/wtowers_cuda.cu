@@ -126,7 +126,7 @@ __device__ inline void scatter_grid_add(cuDoubleComplex *uvgrid, int grid_size, 
     return;
 
   // Bottom half? Mirror
-  //  if (grid_point_u >= grid_size / 2) {
+  //if (grid_point_u >= grid_size / 2) {
   //  grid_point_v = grid_size - grid_point_v - 1;
   //  grid_point_u = grid_size - grid_point_u - 1;
   //}
@@ -207,15 +207,9 @@ __device__ inline void scatter_grid_point(
 	}
 	//TODO: Re-do the w-kernel/gcf for our data.
 	//	cuDoubleComplex px;
-	cuDoubleComplex px = *(cuDoubleComplex*)&wkern->kern_by_w[w_plane].data[sub_offset + myConvU * supp + myConvV];
-	//memcpy(&px, &pxc, sizeof(double __complex__));
-	
+	cuDoubleComplex px = *(cuDoubleComplex*)&wkern->kern_by_w[w_plane].data[sub_offset + myConvU * supp + myConvV];	
 	// Sum up
 	cuDoubleComplex vi = *(cuDoubleComplex*)&bl_d->vis[time*bl_d->freq_count+freq];
-	//memcpy(&vi,&visc,sizeof(double __complex__));
-	
-	//if (grid_point_u >= subgrid_size / 2)
-	//  vi.y = -vi.y;
 	sum = cuCfma(px, vi, sum);
       }
     }
@@ -278,7 +272,46 @@ __host__ inline double lambda_min(struct bl_data *bl_data, double u) {
 __host__ inline double lambda_max(struct bl_data *bl_data, double u) {
     return u * (u < 0 ? bl_data->f_min : bl_data->f_max) / c;
 }
- 
+
+
+__host__ inline static int coord(int grid_size, double theta,
+                 struct bl_data *bl_data,
+                 int time, int freq) {
+#ifdef ASSUME_UVW_0
+    int x = 0, y = 0;
+#else
+    int x = (int)floor(theta * uvw_lambda(bl_data, time, freq, 0) + .5);
+    int y = (int)floor(theta * uvw_lambda(bl_data, time, freq, 1) + .5);
+#endif
+    return (y+grid_size/2) * grid_size + (x+grid_size/2);
+}
+
+
+
+__host__ inline void weight(unsigned int *wgrid, int grid_size, double theta,
+            struct vis_data *vis) {
+
+    // Simple uniform weighting
+    int bl, time, freq;
+    memset(wgrid, 0, grid_size * grid_size * sizeof(unsigned int));
+    for (bl = 0; bl < vis->bl_count; bl++) {
+        for (time = 0; time < vis->bl[bl].time_count; time++) {
+            for (freq = 0; freq < vis->bl[bl].freq_count; freq++) {
+                wgrid[coord(grid_size, theta, &vis->bl[bl], time, freq)]++;
+            }
+        }
+    }
+    for (bl = 0; bl < vis->bl_count; bl++) {
+        for (time = 0; time < vis->bl[bl].time_count; time++) {
+            for (freq = 0; freq < vis->bl[bl].freq_count; freq++) {
+                vis->bl[bl].vis[time*vis->bl[bl].freq_count + freq]
+                    /= wgrid[coord(grid_size, theta, &vis->bl[bl], time, freq)];
+            }
+        }
+    }
+
+}
+
 __host__ inline void fft_shift(cuDoubleComplex *uvgrid, int grid_size) {
 
   // Shift the FFT
@@ -501,7 +534,7 @@ __host__ cudaError_t wprojection_CUDA(const char* visfile, const char* wkernfile
 				      double theta,  double lambda, double bl_min, double bl_max,
 				      int threads_per_block){
 
-//For Benchmarking.
+  //For Benchmarking.
   
   cudaError_t error;
   cudaEvent_t start, stop;
@@ -527,6 +560,7 @@ __host__ cudaError_t wprojection_CUDA(const char* visfile, const char* wkernfile
     return error;
   }
 
+  
 
   //Allocate our main grid.
   
@@ -541,18 +575,21 @@ __host__ cudaError_t wprojection_CUDA(const char* visfile, const char* wkernfile
   //struct bl_data ***bins;
   //bin_visibilities(vis_dat, bins, 1, wkern_dat->w_step, theta, grid_size, grid_size);
 
+  //Weight visibilities
+
+  weight((unsigned int *)grid_host, grid_size, theta, vis_dat);
+
+  
   struct bl_data **bl_d = &vis_dat->bl;
   
   std::cout << "Inititalise scatter gridder... \n";
 
   cudaEventCreate(&start);
   cudaEventRecord(start, 0);
-
-  
   
   scatter_grid_kernel <<< 256 , 32 >>> (bl_d,vis_dat->bl_count,
-					       vis_dat, wkern_dat, grid_dev, wkern_dat->size_x,
-					       grid_size, grid_size, wkern_dat->w_step, theta, 0, 0, 0);
+					vis_dat, wkern_dat, grid_dev, wkern_dat->size_x,
+					grid_size, grid_size, wkern_dat->w_step, theta, 0, 0, 0);
   cudaEventCreate(&stop);
   cudaEventRecord(stop, 0);
 
@@ -568,7 +605,7 @@ __host__ cudaError_t wprojection_CUDA(const char* visfile, const char* wkernfile
 
   //Create FFT Plans for our frequent fft's.
 
-
+  
   cudaError_check(cudaMemcpy(grid_host, grid_dev, total_gs * sizeof(cuDoubleComplex),
 			     cudaMemcpyDeviceToHost));
 
@@ -593,7 +630,7 @@ __host__ cudaError_t wprojection_CUDA(const char* visfile, const char* wkernfile
   image_pref.close();
 
   //This needs a kernel at some point.
-
+  
   
   //Transfer back to host.
   cudaError_check(cudaMemcpy(grid_host, grid_dev, total_gs * sizeof(cuDoubleComplex),
@@ -625,14 +662,13 @@ __host__ cudaError_t wprojection_CUDA(const char* visfile, const char* wkernfile
 
   //double *row;
   //cudaError_check(cudaMallocHost(&row, grid_size * sizeof(double)));
-
+  fft_shift(grid_host,grid_size);
       
   for(int i = 0; i < grid_size; ++i){
 
     for(int j = 0; j< grid_size; ++j){
 
       row[j] = cuCreal(grid_host[i*grid_size + j]);
-
     }
     image_f.write((char*)row, sizeof(double) * grid_size);
   }
