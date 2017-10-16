@@ -36,6 +36,7 @@ inline void cufftAssert(cufftResult code, const char *file, int line, bool abort
     if (abort) exit(code);
   }
 }
+
 /*****************************
         Device Functions
  *****************************/
@@ -327,7 +328,35 @@ __device__ inline void scatter_grid_point(
             Kernels
 *******************************/
 
-//This is our Romein-style scatter gridder.
+
+//This is our Romein-style scatter gridder. Works on flat visibility data.
+__global__ void scatter_grid_kernel_flat(
+				    struct flat_vis_data *vis, // No. of visibilities
+				    struct w_kernel_data *wkern, // No. of wkernels
+				    cuDoubleComplex *uvgrid, //Our UV-Grid
+				    int max_support, //  Convolution size
+				    int subgrid_size, // Subgrid size
+				    int subgrid_pitch, // Subgrid pitch (what is this?)
+				    double wstep, // W-Increment
+				    double theta, // Field of View
+				    int offset_u, // Top left offset from top left main grid
+				    int offset_v, // ^^^^
+				    int offset_w // W Offset
+				    ){
+  
+  for(int i = threadIdx.x; i < max_support * max_support; i += blockDim.x){
+    //  int i = threadIdx.x + blockIdx.x * blockDim.x;
+    int myU = i % max_support;
+    int myV = i / max_support;
+
+    scatter_grid_point_flat(vis, uvgrid, wkern, max_support, myU, myV, wstep,
+		       subgrid_size, subgrid_pitch, theta, offset_u, offset_v, offset_w);
+		       
+  }
+}
+
+
+//This is our Romein-style scatter gridder. Works on hierarchical visibility data (bl->time->freq)
 __global__ void scatter_grid_kernel(struct bl_data **bin, // Baseline bin
 				    int bl_count, // No. of baselines
 				    struct vis_data *vis, // No. of visibilities
@@ -343,7 +372,7 @@ __global__ void scatter_grid_kernel(struct bl_data **bin, // Baseline bin
 				    int offset_w // W Offset
 				    ){
   
-  for(int i = threadIdx.x; i < 32; i += blockDim.x){
+  for(int i = threadIdx.x; i < max_support * max_support; i += blockDim.x){
     //  int i = threadIdx.x + blockIdx.x * blockDim.x;
     int myU = i % max_support;
     int myV = i / max_support;
@@ -367,6 +396,7 @@ __global__ void fresnel_pattern_kernel(cuDoubleComplex *subimg, cuDoubleComplex 
 	  Host Functions
 *******************************/
 
+//Gets minimum/maximum co-ordinate in a particular baseline.
 __host__ inline double lambda_min(struct bl_data *bl_data, double u) {
     return u * (u < 0 ? bl_data->f_max : bl_data->f_min) / c;
 }
@@ -376,6 +406,17 @@ __host__ inline double lambda_max(struct bl_data *bl_data, double u) {
 }
 
 
+__host__ inline void init_grid_zero(cuDoubleComplex *uvgrid, int grid_size){
+
+  for(int x = 0; x< grid_size; ++x){
+    for(int y = 0; y< grid_size; ++y){
+      *(uvgrid+x*grid_size+y) = make_cuDoubleComplex(0.0, 0.0);
+    }
+  }
+
+}
+
+// Get coarse-grained co-ordinate.
 __host__ inline static int coord(int grid_size, double theta,
                  struct bl_data *bl_data,
                  int time, int freq) {
@@ -388,21 +429,37 @@ __host__ inline static int coord(int grid_size, double theta,
     return (y+grid_size/2) * grid_size + (x+grid_size/2);
 }
 
+// Get coarse-grained co-ordinate.
+__host__ inline static int coord_flat(int grid_size, double theta,
+                 struct flat_vis_data *vis_data,
+                 int vi) {
+#ifdef ASSUME_UVW_0
+    int x = 0, y = 0;
+#else
+    int x = (int)floor(theta * vis_data->u[vi] + .5);
+    int y = (int)floor(theta * vis_data->v[vi] + .5);
+#endif
+    return (y+grid_size/2) * grid_size + (x+grid_size/2);
+}
 
-
+// Uniformly weights all visibilities.
 __host__ inline void weight(unsigned int *wgrid, int grid_size, double theta,
             struct vis_data *vis) {
 
+  int total_vis=0;
     // Simple uniform weighting
-    int bl, time, freq;
+  int bl, time, freq;
     memset(wgrid, 0, grid_size * grid_size * sizeof(unsigned int));
     for (bl = 0; bl < vis->bl_count; bl++) {
         for (time = 0; time < vis->bl[bl].time_count; time++) {
             for (freq = 0; freq < vis->bl[bl].freq_count; freq++) {
                 wgrid[coord(grid_size, theta, &vis->bl[bl], time, freq)]++;
+		++total_vis;
             }
         }
     }
+
+    
     for (bl = 0; bl < vis->bl_count; bl++) {
         for (time = 0; time < vis->bl[bl].time_count; time++) {
             for (freq = 0; freq < vis->bl[bl].freq_count; freq++) {
@@ -414,6 +471,28 @@ __host__ inline void weight(unsigned int *wgrid, int grid_size, double theta,
 
 }
 
+// Uniformly weights all visibilities on a flat structre.
+__host__ inline void weight_flat(unsigned int *wgrid, int grid_size, double theta,
+            struct flat_vis_data *vis) {
+
+    // Simple uniform weighting
+
+    memset(wgrid, 0, grid_size * grid_size * sizeof(unsigned int));
+    int vii;
+
+    for (vii = 0; vii<vis->number_of_vis; ++vii){
+      wgrid[coord_flat(grid_size, theta, vis, vii)]++;
+    }
+
+    for (vii = 0; vii<vis->number_of_vis; ++vii){
+      vis->vis[vii] /= wgrid[coord_flat(grid_size, theta, vis, vii)];
+    }
+      
+}
+
+
+//Shifts middle of image to top left corner, to make sure FFT is correct.
+// (Remember to use this again after the FFT too...)
 __host__ inline void fft_shift(cuDoubleComplex *uvgrid, int grid_size) {
 
   // Shift the FFT
@@ -430,6 +509,7 @@ __host__ inline void fft_shift(cuDoubleComplex *uvgrid, int grid_size) {
   }
 }
 
+//Ensures 2-D array is hermitian symmetric.
 __host__ inline void make_hermitian(cuDoubleComplex *uvgrid, int grid_size){
 
   cuDoubleComplex *p0;
@@ -459,22 +539,40 @@ __host__ inline void make_hermitian(cuDoubleComplex *uvgrid, int grid_size){
 
 }
 
+
+// Flattens all visibilities stored in hdf5 into a structure of arrays(SoA) format.
+// Might help locality vOv
 __host__ inline void flatten_visibilities(struct vis_data *vis, struct flat_vis_data *flat_vis){
 
 
-  int flat_vis_iter;
+  int flat_vis_iter=0;
+
+
+  //Pre-loop to get size. 
   for(int bl = 0; bl<vis->bl_count; ++bl){
     struct bl_data bl_d = vis->bl[bl];
     
     for(int time = 0; time< bl_d.time_count;++time){
       for(int freq = 0; freq< bl_d.freq_count;++freq){
 	++flat_vis_iter;
+      }
+    }
+  }
 
-	//Dynamically sized Structure of Arrays.
-	flat_vis->u = (double*)realloc(flat_vis->u,sizeof(double) * flat_vis_iter);
-	flat_vis->v = (double*)realloc(flat_vis->v,sizeof(double) * flat_vis_iter);
-	flat_vis->w = (double*)realloc(flat_vis->w,sizeof(double) * flat_vis_iter);
-	flat_vis->vis = (double _Complex*)realloc(flat_vis->vis,sizeof(double _Complex) * flat_vis_iter);
+  cudaError_check(cudaMallocManaged(&flat_vis->u, sizeof(double) * flat_vis_iter, cudaMemAttachGlobal));
+  cudaError_check(cudaMallocManaged(&flat_vis->v, sizeof(double) * flat_vis_iter, cudaMemAttachGlobal));
+  cudaError_check(cudaMallocManaged(&flat_vis->w, sizeof(double) * flat_vis_iter, cudaMemAttachGlobal));
+  cudaError_check(cudaMallocManaged(&flat_vis->vis, sizeof(double _Complex) * flat_vis_iter, cudaMemAttachGlobal));
+
+
+  int total_vis = flat_vis_iter;
+  flat_vis_iter = 0;
+  for(int bl = 0; bl<vis->bl_count; ++bl){
+    struct bl_data bl_d = vis->bl[bl];
+    
+    for(int time = 0; time< bl_d.time_count;++time){
+      for(int freq = 0; freq< bl_d.freq_count;++freq){
+	++flat_vis_iter;
 
 	//Flatten
 
@@ -491,9 +589,10 @@ __host__ inline void flatten_visibilities(struct vis_data *vis, struct flat_vis_
     }
   }
 
-  flat_vis->number_of_vis = flat_vis_iter;
+  flat_vis->number_of_vis = total_vis;
 }
 
+//Bins visibilities in u/v for w-towers style subgrids.
 __host__ inline void bin_visibilities(struct vis_data *vis, struct bl_data ***bins,
 				      int chunk_count, int wincrement, double theta,
 				      int grid_size, int chunk_size){
@@ -708,13 +807,18 @@ __host__ cudaError_t wprojection_CUDA(const char* visfile, const char* wkernfile
 
   int blocks = total_gs / 256;
 
+  struct flat_vis_data *flat_vis_dat;
+  cudaError_check(cudaMallocManaged((void**)&flat_vis_dat, sizeof(struct flat_vis_data), cudaMemAttachGlobal));
+  
+
+  flatten_visibilities(vis_dat,flat_vis_dat);
   //struct bl_data ***bins;
   //bin_visibilities(vis_dat, bins, 1, wkern_dat->w_step, theta, grid_size, grid_size);
 
   //Weight visibilities
 
-  weight((unsigned int *)grid_host, grid_size, theta, vis_dat);
-
+  //weight((unsigned int *)grid_host, grid_size, theta, vis_dat);
+  weight_flat((unsigned int *)grid_host, grid_size, theta, flat_vis_dat);
   
   struct bl_data **bl_d = &vis_dat->bl;
   
@@ -722,10 +826,13 @@ __host__ cudaError_t wprojection_CUDA(const char* visfile, const char* wkernfile
 
   cudaEventCreate(&start);
   cudaEventRecord(start, 0);
-  
-  scatter_grid_kernel <<< 16 , 32 >>> (bl_d,vis_dat->bl_count,
-					vis_dat, wkern_dat, grid_dev, wkern_dat->size_x,
-					grid_size, grid_size, wkern_dat->w_step, theta, 0, 0, 0);
+
+  scatter_grid_kernel_flat <<< 16, 32 >>> (flat_vis_dat, wkern_dat, grid_dev, wkern_dat->size_x,
+  					  grid_size, grid_size, wkern_dat->w_step, theta, 0, 0, 0);
+   
+  //    scatter_grid_kernel <<< 16 , 32 >>> (bl_d,vis_dat->bl_count,
+  //					 vis_dat, wkern_dat, grid_dev, wkern_dat->size_x,
+  //					 grid_size, grid_size, wkern_dat->w_step, theta, 0, 0, 0);
   cudaEventCreate(&stop);
   cudaEventRecord(stop, 0);
 
@@ -735,7 +842,7 @@ __host__ cudaError_t wprojection_CUDA(const char* visfile, const char* wkernfile
   std::cout << "Scatter Gridder Elapsed Time: " << elapsedTime << "\n";
 
 
-  free_vis_CUDA(vis_dat);
+  //free_vis_CUDA(vis_dat);
 
   
 
