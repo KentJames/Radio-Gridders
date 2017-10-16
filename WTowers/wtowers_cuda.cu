@@ -817,8 +817,8 @@ __host__ cudaError_t wprojection_CUDA(const char* visfile, const char* wkernfile
 
   //Weight visibilities
 
-  //weight((unsigned int *)grid_host, grid_size, theta, vis_dat);
-  weight_flat((unsigned int *)grid_host, grid_size, theta, flat_vis_dat);
+  weight((unsigned int *)grid_host, grid_size, theta, vis_dat);
+  //weight_flat((unsigned int *)grid_host, grid_size, theta, flat_vis_dat);
   
   struct bl_data **bl_d = &vis_dat->bl;
   
@@ -827,12 +827,12 @@ __host__ cudaError_t wprojection_CUDA(const char* visfile, const char* wkernfile
   cudaEventCreate(&start);
   cudaEventRecord(start, 0);
 
-  scatter_grid_kernel_flat <<< 16, 32 >>> (flat_vis_dat, wkern_dat, grid_dev, wkern_dat->size_x,
-  					  grid_size, grid_size, wkern_dat->w_step, theta, 0, 0, 0);
-   
-  //    scatter_grid_kernel <<< 16 , 32 >>> (bl_d,vis_dat->bl_count,
-  //					 vis_dat, wkern_dat, grid_dev, wkern_dat->size_x,
-  //					 grid_size, grid_size, wkern_dat->w_step, theta, 0, 0, 0);
+  //scatter_grid_kernel_flat <<< 256, 32 >>> (flat_vis_dat, wkern_dat, grid_dev, wkern_dat->size_x,
+  //					  grid_size, grid_size, wkern_dat->w_step, theta, 0, 0, 0);
+  // 
+      scatter_grid_kernel <<< 256 , 32 >>> (bl_d,vis_dat->bl_count,
+ 					 vis_dat, wkern_dat, grid_dev, wkern_dat->size_x,
+  					 grid_size, grid_size, wkern_dat->w_step, theta, 0, 0, 0);
   cudaEventCreate(&stop);
   cudaEventRecord(stop, 0);
 
@@ -849,10 +849,18 @@ __host__ cudaError_t wprojection_CUDA(const char* visfile, const char* wkernfile
   //Create FFT Plans for our frequent fft's.
 
   
+
+  //This needs a kernel at some point.
+  
+  
+  //Transfer back to host.
   cudaError_check(cudaMemcpy(grid_host, grid_dev, total_gs * sizeof(cuDoubleComplex),
-			     cudaMemcpyDeviceToHost));
+			     cudaMemcpyDeviceToHost));  
   fft_shift(grid_host, grid_size);
-  //Write Image to disk on host.
+  make_hermitian(grid_host, grid_size);
+
+
+//Write Image to disk on host.
 
   std::ofstream image_pref ("pre_fft.out", std::ofstream::out | std::ofstream::binary);
   std::cout << "Writing Image to File... \n";
@@ -872,14 +880,10 @@ __host__ cudaError_t wprojection_CUDA(const char* visfile, const char* wkernfile
 
   image_pref.close();
 
-  //This needs a kernel at some point.
   
-  
-  //Transfer back to host.
-  cudaError_check(cudaMemcpy(grid_host, grid_dev, total_gs * sizeof(cuDoubleComplex),
-			     cudaMemcpyDeviceToHost));  
 
-  make_hermitian(grid_host, grid_size);
+
+  
   cudaError_check(cudaMemcpy(grid_dev, grid_host, total_gs * sizeof(cuDoubleComplex),
 			     cudaMemcpyHostToDevice));
 
