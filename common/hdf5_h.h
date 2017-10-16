@@ -17,6 +17,17 @@ extern "C" {
   //Fudge constant for resolution.
   //Resolution varies depending on block/thread sizing.
   static const double resolution = 1.0;
+
+
+  // Potentially faster for Romein gridder, not too sure yet. Pure SoA vs AoS below.
+  struct flat_vis_data
+  {
+
+    double *u, *v, *w;
+    double _Complex *vis;
+    int number_of_vis;
+  };
+
   
   // Visibility data
   struct bl_data

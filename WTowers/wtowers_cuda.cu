@@ -36,7 +36,6 @@ inline void cufftAssert(cufftResult code, const char *file, int line, bool abort
     if (abort) exit(code);
   }
 }
-
 /*****************************
         Device Functions
  *****************************/
@@ -74,6 +73,7 @@ __host__ __device__ inline cuDoubleComplex cu_cexp_d (cuDoubleComplex z){
 __host__ __device__ inline static double uvw_lambda(struct bl_data *bl_data,
 				  int time, int freq, int uvw) {
     return bl_data->uvw[3*time+uvw] * bl_data->freq[freq] / c;
+    
   }
 
 
@@ -90,6 +90,29 @@ __host__ __device__ inline static int2 getcoords_xy(double u, double v, int grid
     
 
 }
+
+__host__ __device__ inline static void frac_coord_flat(int grid_size, int kernel_size, int oversample,
+                              double theta,
+                              struct flat_vis_data *vis,
+                              int i,
+                              double d_u, double d_v,
+                              int *grid_offset, int *sub_offset) {
+#ifdef ASSUME_UVW_0
+    double x = 0, y = 0;
+#else
+    double x = theta * (vis->u[i] - d_u);
+    double y = theta * (vis->v[i] - d_v);
+#endif
+    int flx = (int)floor(x + .5 / oversample);
+    int fly = (int)floor(y + .5 / oversample);
+    int xf = (int)floor((x - (double)flx) * oversample + .5);
+    int yf = (int)floor((y - (double)fly) * oversample + .5);
+    *grid_offset =
+        (fly+grid_size/2-kernel_size/2)*grid_size +
+        (flx+grid_size/2-kernel_size/2);
+    *sub_offset = kernel_size * kernel_size * (yf*oversample + xf);
+}
+
 
 
 __host__ __device__ inline static void frac_coord(int grid_size, int kernel_size, int oversample,
@@ -136,6 +159,85 @@ __device__ inline void scatter_grid_add(cuDoubleComplex *uvgrid, int grid_size, 
   atomicAdd(&uvgrid[grid_point_u + grid_pitch*grid_point_v].y, sum.y);
 
 }
+
+
+__device__ inline void scatter_grid_point_flat(
+					  struct flat_vis_data *vis, // Our bins of UV Data
+					  cuDoubleComplex *uvgrid, // Our main UV Grid
+					  struct w_kernel_data *wkern, //Our W-Kernel
+					  int max_supp, // Max size of W-Kernel
+					  int myU, //Our assigned u/v points.
+					  int myV, // ^^^
+					  double wstep, // W-Increment 
+					  int subgrid_size, //The size of our w-towers subgrid.
+					  int subgrid_pitch, // Not too sure about ths one
+					  double theta, // Field of View Size
+					  int offset_u, // Offset from top left of main grid to t.l of subgrid.
+					  int offset_v, // ^^^^
+					  int offset_w
+					  ){ 
+
+  int grid_point_u = myU, grid_point_v = myV;
+  cuDoubleComplex sum  = make_cuDoubleComplex(0.0,0.0);
+
+  short supp = short(wkern->size_x);
+  
+  //  for (int i = 0; i < visibilities; i++) {
+  int vi;
+  for (vi = 0; vi < vis->number_of_vis; ++vi){
+
+
+    
+    //double u = vis->u[vi];
+    //double v = vis->v[vi];
+    double w = vis->w[vi];
+    int w_plane = fabs((w - wkern->w_min) / (wkern->w_step + .5));
+    int grid_offset, sub_offset;
+    frac_coord_flat(subgrid_size, wkern->size_x, wkern->oversampling,
+		    theta, vis, vi, offset_u, offset_v, &grid_offset, &sub_offset);
+    int u = grid_offset % subgrid_size; 
+    int v = grid_offset / subgrid_size;
+
+    // Determine convolution point. This is basically just an
+    // optimised way to calculate
+    //   myConvU = (myU - u) % max_supp
+    //   myConvV = (myV - v) % max_supp
+    //	int2 xy = getcoords_xy(u,v,subgrid_size,theta,max_supp);
+    int myConvU = (u - myU) % max_supp;
+    int myConvV = (v - myV) % max_supp;
+    if (myConvU < 0) myConvU += max_supp;
+    if (myConvV < 0) myConvV += max_supp;
+
+    // Determine grid point. Because of the above we know here that
+    //   myGridU % max_supp = myU
+    //   myGridV % max_supp = myV
+    int myGridU = u + myConvU
+      , myGridV = v + myConvV;
+
+    // Grid point changed?
+    if (myGridU != grid_point_u || myGridV != grid_point_v) {
+      // Atomically add to grid. This is the bottleneck of this kernel.
+      scatter_grid_add(uvgrid, subgrid_size, subgrid_pitch, grid_point_u, grid_point_v, sum);
+      // Switch to new point
+      sum = make_cuDoubleComplex(0.0, 0.0);
+      grid_point_u = myGridU;
+      grid_point_v = myGridV;
+    }
+    //TODO: Re-do the w-kernel/gcf for our data.
+    //	cuDoubleComplex px;
+    cuDoubleComplex px = *(cuDoubleComplex*)&wkern->kern_by_w[w_plane].data[sub_offset + myConvU * supp + myConvV];	
+    // Sum up
+    cuDoubleComplex vi_v = *(cuDoubleComplex*)&vis->vis[vi];
+    sum = cuCfma(px, vi_v, sum);
+      
+    
+  }
+
+  // Add remaining sum to grid
+  scatter_grid_add(uvgrid, subgrid_size, subgrid_pitch, grid_point_u, grid_point_v, sum);
+
+}
+
 
 
 //From Kyrills Implementation in SKA/RC. Modified to suit our data format.
@@ -204,7 +306,7 @@ __device__ inline void scatter_grid_point(
 	  sum = make_cuDoubleComplex(0.0, 0.0);
 	  grid_point_u = myGridU;
 	  grid_point_v = myGridV;
-	}
+	  }
 	//TODO: Re-do the w-kernel/gcf for our data.
 	//	cuDoubleComplex px;
 	cuDoubleComplex px = *(cuDoubleComplex*)&wkern->kern_by_w[w_plane].data[sub_offset + myConvU * supp + myConvV];	
@@ -241,8 +343,8 @@ __global__ void scatter_grid_kernel(struct bl_data **bin, // Baseline bin
 				    int offset_w // W Offset
 				    ){
   
-  for(int i = threadIdx.x; i < max_support * max_support; i += blockDim.x){
-    //int i = threadIdx.x + blockIdx.x * blockDim.x;
+  for(int i = threadIdx.x; i < 32; i += blockDim.x){
+    //  int i = threadIdx.x + blockIdx.x * blockDim.x;
     int myU = i % max_support;
     int myV = i / max_support;
 
@@ -357,6 +459,41 @@ __host__ inline void make_hermitian(cuDoubleComplex *uvgrid, int grid_size){
 
 }
 
+__host__ inline void flatten_visibilities(struct vis_data *vis, struct flat_vis_data *flat_vis){
+
+
+  int flat_vis_iter;
+  for(int bl = 0; bl<vis->bl_count; ++bl){
+    struct bl_data bl_d = vis->bl[bl];
+    
+    for(int time = 0; time< bl_d.time_count;++time){
+      for(int freq = 0; freq< bl_d.freq_count;++freq){
+	++flat_vis_iter;
+
+	//Dynamically sized Structure of Arrays.
+	flat_vis->u = (double*)realloc(flat_vis->u,sizeof(double) * flat_vis_iter);
+	flat_vis->v = (double*)realloc(flat_vis->v,sizeof(double) * flat_vis_iter);
+	flat_vis->w = (double*)realloc(flat_vis->w,sizeof(double) * flat_vis_iter);
+	flat_vis->vis = (double _Complex*)realloc(flat_vis->vis,sizeof(double _Complex) * flat_vis_iter);
+
+	//Flatten
+
+	
+	flat_vis->u[flat_vis_iter] = uvw_lambda(&bl_d, time, freq, 0);
+	flat_vis->v[flat_vis_iter] = uvw_lambda(&bl_d, time, freq, 1);
+	flat_vis->w[flat_vis_iter] = uvw_lambda(&bl_d, time, freq, 2);
+
+	flat_vis->vis[flat_vis_iter] = bl_d.vis[time*bl_d.freq_count+freq];
+	
+	
+
+      }
+    }
+  }
+
+  flat_vis->number_of_vis = flat_vis_iter;
+}
+
 __host__ inline void bin_visibilities(struct vis_data *vis, struct bl_data ***bins,
 				      int chunk_count, int wincrement, double theta,
 				      int grid_size, int chunk_size){
@@ -433,7 +570,6 @@ __host__ cudaError_t wtowers_CUDA(const char* visfile, const char* wkernfile, in
   float elapsedTime;
 
   // Load visibility and w-kernel data from HDF5 files.
-  
   struct vis_data *vis_dat;
   struct w_kernel_data *wkern_dat;
 
@@ -587,7 +723,7 @@ __host__ cudaError_t wprojection_CUDA(const char* visfile, const char* wkernfile
   cudaEventCreate(&start);
   cudaEventRecord(start, 0);
   
-  scatter_grid_kernel <<< 256 , 32 >>> (bl_d,vis_dat->bl_count,
+  scatter_grid_kernel <<< 16 , 32 >>> (bl_d,vis_dat->bl_count,
 					vis_dat, wkern_dat, grid_dev, wkern_dat->size_x,
 					grid_size, grid_size, wkern_dat->w_step, theta, 0, 0, 0);
   cudaEventCreate(&stop);
@@ -608,7 +744,7 @@ __host__ cudaError_t wprojection_CUDA(const char* visfile, const char* wkernfile
   
   cudaError_check(cudaMemcpy(grid_host, grid_dev, total_gs * sizeof(cuDoubleComplex),
 			     cudaMemcpyDeviceToHost));
-
+  fft_shift(grid_host, grid_size);
   //Write Image to disk on host.
 
   std::ofstream image_pref ("pre_fft.out", std::ofstream::out | std::ofstream::binary);
@@ -635,7 +771,7 @@ __host__ cudaError_t wprojection_CUDA(const char* visfile, const char* wkernfile
   //Transfer back to host.
   cudaError_check(cudaMemcpy(grid_host, grid_dev, total_gs * sizeof(cuDoubleComplex),
 			     cudaMemcpyDeviceToHost));  
-  fft_shift(grid_host, grid_size);
+
   make_hermitian(grid_host, grid_size);
   cudaError_check(cudaMemcpy(grid_dev, grid_host, total_gs * sizeof(cuDoubleComplex),
 			     cudaMemcpyHostToDevice));
@@ -663,7 +799,6 @@ __host__ cudaError_t wprojection_CUDA(const char* visfile, const char* wkernfile
   //double *row;
   //cudaError_check(cudaMallocHost(&row, grid_size * sizeof(double)));
   fft_shift(grid_host,grid_size);
-      
   for(int i = 0; i < grid_size; ++i){
 
     for(int j = 0; j< grid_size; ++j){
@@ -677,8 +812,8 @@ __host__ cudaError_t wprojection_CUDA(const char* visfile, const char* wkernfile
 
   //Check it actually ran...
   cudaError_t err = cudaGetLastError();
+  
 
   std::cout << "Error: " << cudaGetErrorString(err) << "\n";
   return err;
-
-}
+} 
