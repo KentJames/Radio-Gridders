@@ -132,6 +132,8 @@ extern "C" {
   int load_vis(const char *filename, struct vis_data *vis,
 	       double min_len, double max_len);
 
+  void flatten_visibilities_CUDA(struct vis_data *vis, struct flat_vis_data *flat_vis);
+
   //You must compile both hdf5.c AND your kernel with -DVAR_W_KERN to use variable w-kernels.
 #ifdef VAR_W_KERN
   int load_wkern_CUDA(const char *filename, double theta, struct var_w_kernel_data *wkern);

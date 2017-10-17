@@ -10,15 +10,66 @@
 #include "hdf5_h.h"
 
 
-#define cudaError_check(ans) { gpuAssert((ans), __FILE__, __LINE__); }
-inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort)
-{
-   if (code != cudaSuccess) 
-   {
-      fprintf(stderr,"GPUassert: %s %s %d\n", cudaGetErrorString(code), file, line);
-      if (abort) exit(code);
-   }
+
+inline static double uvw_lambda(struct bl_data *bl_data,
+				  int time, int freq, int uvw) {
+    return bl_data->uvw[3*time+uvw] * bl_data->freq[freq] / c;
+    
+  }
+
+// Flattens all visibilities stored in hdf5 into a structure of arrays(SoA) format.
+// Might help locality vOv
+void flatten_visibilities_CUDA(struct vis_data *vis, struct flat_vis_data *flat_vis){
+
+
+  int flat_vis_iter=0;
+
+
+  //Pre-loop to get size. 
+  for(int bl = 0; bl<vis->bl_count; ++bl){
+    struct bl_data bl_d = vis->bl[bl];
+    
+    for(int time = 0; time< bl_d.time_count;++time){
+      for(int freq = 0; freq< bl_d.freq_count;++freq){
+	++flat_vis_iter;
+      }
+    }
+  }
+
+  cudaMallocManaged((void**)&flat_vis->u, sizeof(double) * flat_vis_iter, cudaMemAttachGlobal);
+  cudaMallocManaged((void**)&flat_vis->v, sizeof(double) * flat_vis_iter, cudaMemAttachGlobal);
+  cudaMallocManaged((void**)&flat_vis->w, sizeof(double) * flat_vis_iter, cudaMemAttachGlobal);
+  cudaMallocManaged((void**)&flat_vis->vis, sizeof(double _Complex) * flat_vis_iter, cudaMemAttachGlobal);
+
+
+  int total_vis = flat_vis_iter;
+  flat_vis_iter = 0;
+  for(int bl = 0; bl<vis->bl_count; ++bl){
+    struct bl_data bl_d = vis->bl[bl];
+    
+    for(int time = 0; time< bl_d.time_count;++time){
+      for(int freq = 0; freq< bl_d.freq_count;++freq){
+	++flat_vis_iter;
+
+	//Flatten
+
+	
+	flat_vis->u[flat_vis_iter] = uvw_lambda(&bl_d, time, freq, 0);
+	flat_vis->v[flat_vis_iter] = uvw_lambda(&bl_d, time, freq, 1);
+	flat_vis->w[flat_vis_iter] = uvw_lambda(&bl_d, time, freq, 2);
+
+	flat_vis->vis[flat_vis_iter] = bl_d.vis[time*bl_d.freq_count+freq];
+	
+	
+
+      }
+    }
+  }
+
+  flat_vis->number_of_vis = total_vis;
 }
+
+
 
 // Complex data type
 hid_t dtype_cpx;
@@ -86,6 +137,7 @@ int free_vis_CUDA(struct vis_data *vis){
   
 
 }
+
 
 static bool load_vis_group_CUDA(hid_t vis_g, struct bl_data *bl,
                            int a1, int a2,
@@ -400,9 +452,9 @@ int load_vis_CUDA(const char *filename, struct vis_data *vis,
 
     printf("\n");
     if (stats.vis_count < stats.total_vis_count) {
-        printf("Have %d baselines and %d visibilities (%d total)\n", vis->bl_count, stats.vis_count, stats.total_vis_count);
+        printf("Have %d baselines and %ld visibilities (%ld total)\n", vis->bl_count, stats.vis_count, stats.total_vis_count);
     } else {
-        printf("Have %d baselines and %d visibilities\n", vis->bl_count, stats.vis_count);
+        printf("Have %d baselines and %ld visibilities\n", vis->bl_count, stats.vis_count);
     }
     printf("u range:     %.2f - %.2f lambda\n", stats.u_min*stats.f_max/c, stats.u_max*stats.f_max/c);
     printf("v range:     %.2f - %.2f lambda\n", stats.v_min*stats.f_max/c, stats.v_max*stats.f_max/c);
@@ -708,9 +760,9 @@ int load_vis(const char *filename, struct vis_data *vis,
 
     printf("\n");
     if (stats.vis_count < stats.total_vis_count) {
-        printf("Have %d baselines and %d visibilities (%d total)\n", vis->bl_count, stats.vis_count, stats.total_vis_count);
+        printf("Have %d baselines and %ld visibilities (%ld total)\n", vis->bl_count, stats.vis_count, stats.total_vis_count);
     } else {
-        printf("Have %d baselines and %d visibilities\n", vis->bl_count, stats.vis_count);
+        printf("Have %d baselines and %ld visibilities\n", vis->bl_count, stats.vis_count);
     }
     printf("u range:     %.2f - %.2f lambda\n", stats.u_min*stats.f_max/c, stats.u_max*stats.f_max/c);
     printf("v range:     %.2f - %.2f lambda\n", stats.v_min*stats.f_max/c, stats.v_max*stats.f_max/c);

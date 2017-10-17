@@ -77,21 +77,6 @@ __host__ __device__ inline static double uvw_lambda(struct bl_data *bl_data,
     
   }
 
-
-
-__host__ __device__ inline static int2 getcoords_xy(double u, double v, int grid_size,
-				    double theta, int max_support){
-
-  int2 xy;
-
-  xy.x = ((int)floor(theta * u + 0.5) + (grid_size/2)) % max_support;
-  xy.y = ((int)floor(theta * v + 0.5) + (grid_size/2)) % max_support;
-
-  return xy;
-    
-
-}
-
 __host__ __device__ inline static void frac_coord_flat(int grid_size, int kernel_size, int oversample,
                               double theta,
                               struct flat_vis_data *vis,
@@ -544,59 +529,6 @@ __host__ inline void make_hermitian(cuDoubleComplex *uvgrid, int grid_size){
 
 }
 
-// Flattens all visibilities stored in hdf5 into a structure of arrays(SoA) format.
-// Might help locality vOv
-void flatten_visibilities_CUDA(struct vis_data *vis, struct flat_vis_data *flat_vis){
-
-
-  int flat_vis_iter=0;
-
-
-  //Pre-loop to get size. 
-  for(int bl = 0; bl<vis->bl_count; ++bl){
-    struct bl_data bl_d = vis->bl[bl];
-    
-    for(int time = 0; time< bl_d.time_count;++time){
-      for(int freq = 0; freq< bl_d.freq_count;++freq){
-	++flat_vis_iter;
-      }
-    }
-  }
-
-  cudaMallocManaged((void**)&flat_vis->u, sizeof(double) * flat_vis_iter, cudaMemAttachGlobal);
-  cudaMallocManaged((void**)&flat_vis->v, sizeof(double) * flat_vis_iter, cudaMemAttachGlobal);
-  cudaMallocManaged((void**)&flat_vis->w, sizeof(double) * flat_vis_iter, cudaMemAttachGlobal);
-  cudaMallocManaged((void**)&flat_vis->vis, sizeof(double _Complex) * flat_vis_iter, cudaMemAttachGlobal);
-
-
-  int total_vis = flat_vis_iter;
-  flat_vis_iter = 0;
-  for(int bl = 0; bl<vis->bl_count; ++bl){
-    struct bl_data bl_d = vis->bl[bl];
-    
-    for(int time = 0; time< bl_d.time_count;++time){
-      for(int freq = 0; freq< bl_d.freq_count;++freq){
-	++flat_vis_iter;
-
-	//Flatten
-
-	
-	flat_vis->u[flat_vis_iter] = uvw_lambda(&bl_d, time, freq, 0);
-	flat_vis->v[flat_vis_iter] = uvw_lambda(&bl_d, time, freq, 1);
-	flat_vis->w[flat_vis_iter] = uvw_lambda(&bl_d, time, freq, 2);
-
-	flat_vis->vis[flat_vis_iter] = bl_d.vis[time*bl_d.freq_count+freq];
-	
-	
-
-      }
-    }
-  }
-
-  flat_vis->number_of_vis = total_vis;
-}
-
-
 //Splits our visibilities up into contiguous bins, for each block to apply.
 __host__ inline void bin_flat_visibilities(struct flat_vis_data *vis_bins, struct flat_vis_data *vis,
 					   int blocks){
@@ -963,7 +895,7 @@ __host__ cudaError_t wprojection_CUDA_flat(const char* visfile, const char* wker
 
   //For Benchmarking.
   
-  cudaError_t error;
+  cudaError_t error = (cudaError_t)0;
   cudaEvent_t start, stop;
   float elapsedTime;
 
