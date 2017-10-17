@@ -50,4 +50,8 @@ __host__ cudaError_t wprojection_CUDA(const char* visfile, const char* wkernfile
 				      double theta,  double lambda, double bl_min, double bl_max, 
 				      int threads_per_block);
 
+__host__ cudaError_t wprojection_CUDA_flat(const char* visfile, const char* wkernfile, int grid_size,
+					   double theta,  double lambda, double bl_min, double bl_max,
+					   int threads_per_block);
+
 #endif

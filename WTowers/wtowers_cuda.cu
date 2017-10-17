@@ -186,7 +186,7 @@ __device__ inline void scatter_grid_point_flat(
   //  for (int i = 0; i < visibilities; i++) {
   int vi;
   for (vi = 0; vi < vis->number_of_vis; ++vi){
-
+    
 
     
     //double u = vis->u[vi];
@@ -343,13 +343,18 @@ __global__ void scatter_grid_kernel_flat(
 				    int offset_v, // ^^^^
 				    int offset_w // W Offset
 				    ){
+
+  //Assign some visibilities to grid;
+
+  
+
   
   for(int i = threadIdx.x; i < max_support * max_support; i += blockDim.x){
     //  int i = threadIdx.x + blockIdx.x * blockDim.x;
     int myU = i % max_support;
     int myV = i / max_support;
 
-    scatter_grid_point_flat(vis, uvgrid, wkern, max_support, myU, myV, wstep,
+    scatter_grid_point_flat(vis+blockIdx.x, uvgrid, wkern, max_support, myU, myV, wstep,
 		       subgrid_size, subgrid_pitch, theta, offset_u, offset_v, offset_w);
 		       
   }
@@ -539,10 +544,9 @@ __host__ inline void make_hermitian(cuDoubleComplex *uvgrid, int grid_size){
 
 }
 
-
 // Flattens all visibilities stored in hdf5 into a structure of arrays(SoA) format.
 // Might help locality vOv
-__host__ inline void flatten_visibilities(struct vis_data *vis, struct flat_vis_data *flat_vis){
+void flatten_visibilities_CUDA(struct vis_data *vis, struct flat_vis_data *flat_vis){
 
 
   int flat_vis_iter=0;
@@ -559,10 +563,10 @@ __host__ inline void flatten_visibilities(struct vis_data *vis, struct flat_vis_
     }
   }
 
-  cudaError_check(cudaMallocManaged(&flat_vis->u, sizeof(double) * flat_vis_iter, cudaMemAttachGlobal));
-  cudaError_check(cudaMallocManaged(&flat_vis->v, sizeof(double) * flat_vis_iter, cudaMemAttachGlobal));
-  cudaError_check(cudaMallocManaged(&flat_vis->w, sizeof(double) * flat_vis_iter, cudaMemAttachGlobal));
-  cudaError_check(cudaMallocManaged(&flat_vis->vis, sizeof(double _Complex) * flat_vis_iter, cudaMemAttachGlobal));
+  cudaMallocManaged((void**)&flat_vis->u, sizeof(double) * flat_vis_iter, cudaMemAttachGlobal);
+  cudaMallocManaged((void**)&flat_vis->v, sizeof(double) * flat_vis_iter, cudaMemAttachGlobal);
+  cudaMallocManaged((void**)&flat_vis->w, sizeof(double) * flat_vis_iter, cudaMemAttachGlobal);
+  cudaMallocManaged((void**)&flat_vis->vis, sizeof(double _Complex) * flat_vis_iter, cudaMemAttachGlobal);
 
 
   int total_vis = flat_vis_iter;
@@ -591,6 +595,51 @@ __host__ inline void flatten_visibilities(struct vis_data *vis, struct flat_vis_
 
   flat_vis->number_of_vis = total_vis;
 }
+
+
+//Splits our visibilities up into contiguous bins, for each block to apply.
+__host__ inline void bin_flat_visibilities(struct flat_vis_data *vis_bins, struct flat_vis_data *vis,
+					   int blocks){
+
+  int vis_per_block = vis->number_of_vis / blocks;
+  int leftovers = vis->number_of_vis % blocks;
+
+
+  int i;
+  for(i = 0; i < blocks-1; ++i){
+
+    cudaError_check(cudaMallocManaged((void**)&(vis_bins+i)->u, sizeof(double) * vis_per_block, cudaMemAttachGlobal));
+    cudaError_check(cudaMallocManaged((void**)&(vis_bins+i)->v, sizeof(double) * vis_per_block, cudaMemAttachGlobal));
+    cudaError_check(cudaMallocManaged((void**)&(vis_bins+i)->w, sizeof(double) * vis_per_block, cudaMemAttachGlobal));
+    cudaError_check(cudaMallocManaged((void**)&(vis_bins+i)->vis, sizeof(double _Complex) * vis_per_block, cudaMemAttachGlobal));
+
+
+    cudaError_check(cudaMemcpy((vis_bins+i)->u, vis->u + vis_per_block * i, sizeof(double) * vis_per_block, cudaMemcpyDefault));
+    cudaError_check(cudaMemcpy((vis_bins+i)->v, vis->v + vis_per_block * i, sizeof(double) * vis_per_block, cudaMemcpyDefault));
+    cudaError_check(cudaMemcpy((vis_bins+i)->w, vis->w + vis_per_block * i, sizeof(double) * vis_per_block, cudaMemcpyDefault));
+    cudaError_check(cudaMemcpy((vis_bins+i)->vis, vis->vis + vis_per_block * i, sizeof(double _Complex) * vis_per_block, cudaMemcpyDefault));
+    (vis_bins+i)->number_of_vis = vis_per_block;
+  }
+  
+  //Last one gets remainders.
+
+
+  cudaError_check(cudaMallocManaged((void**)&(vis_bins+i)->u, sizeof(double) * (vis_per_block + leftovers), cudaMemAttachGlobal));
+  cudaError_check(cudaMallocManaged((void**)&(vis_bins+i)->v, sizeof(double) * (vis_per_block + leftovers), cudaMemAttachGlobal));
+  cudaError_check(cudaMallocManaged((void**)&(vis_bins+i)->w, sizeof(double) * (vis_per_block + leftovers), cudaMemAttachGlobal));
+  cudaError_check(cudaMallocManaged((void**)&(vis_bins+i)->vis, sizeof(double _Complex) * (vis_per_block + leftovers), cudaMemAttachGlobal));
+    
+
+  
+  cudaError_check(cudaMemcpy((vis_bins+i)->u, vis->u + vis_per_block * i, sizeof(double) * (vis_per_block+leftovers), cudaMemcpyDefault));
+  cudaError_check(cudaMemcpy((vis_bins+i)->v, vis->v + vis_per_block * i, sizeof(double) * (vis_per_block+leftovers), cudaMemcpyDefault));
+  cudaError_check(cudaMemcpy((vis_bins+i)->w, vis->w + vis_per_block * i, sizeof(double) * (vis_per_block+leftovers), cudaMemcpyDefault));
+  cudaError_check(cudaMemcpy((vis_bins+i)->vis, vis->vis + vis_per_block * i, sizeof(double _Complex) * (vis_per_block+leftovers), cudaMemcpyDefault));
+   (vis_bins+i)->number_of_vis = vis_per_block + leftovers;
+
+  
+}
+
 
 //Bins visibilities in u/v for w-towers style subgrids.
 __host__ inline void bin_visibilities(struct vis_data *vis, struct bl_data ***bins,
@@ -807,19 +856,10 @@ __host__ cudaError_t wprojection_CUDA(const char* visfile, const char* wkernfile
 
   int blocks = total_gs / 256;
 
-  struct flat_vis_data *flat_vis_dat;
-  cudaError_check(cudaMallocManaged((void**)&flat_vis_dat, sizeof(struct flat_vis_data), cudaMemAttachGlobal));
-  
-
-  flatten_visibilities(vis_dat,flat_vis_dat);
-  //struct bl_data ***bins;
-  //bin_visibilities(vis_dat, bins, 1, wkern_dat->w_step, theta, grid_size, grid_size);
-
   //Weight visibilities
 
   weight((unsigned int *)grid_host, grid_size, theta, vis_dat);
-  //weight_flat((unsigned int *)grid_host, grid_size, theta, flat_vis_dat);
-  
+    
   struct bl_data **bl_d = &vis_dat->bl;
   
   std::cout << "Inititalise scatter gridder... \n";
@@ -827,37 +867,26 @@ __host__ cudaError_t wprojection_CUDA(const char* visfile, const char* wkernfile
   cudaEventCreate(&start);
   cudaEventRecord(start, 0);
 
-  //scatter_grid_kernel_flat <<< 256, 32 >>> (flat_vis_dat, wkern_dat, grid_dev, wkern_dat->size_x,
+  //scatter_grid_kernel_flat <<< 16, 32 >>> (flat_vis_dat, wkern_dat, grid_dev, wkern_dat->size_x,
   //					  grid_size, grid_size, wkern_dat->w_step, theta, 0, 0, 0);
-  // 
-      scatter_grid_kernel <<< 256 , 32 >>> (bl_d,vis_dat->bl_count,
- 					 vis_dat, wkern_dat, grid_dev, wkern_dat->size_x,
-  					 grid_size, grid_size, wkern_dat->w_step, theta, 0, 0, 0);
+  //
+  scatter_grid_kernel <<< 16 , 32 >>> (bl_d,vis_dat->bl_count,
+				       vis_dat, wkern_dat, grid_dev, wkern_dat->size_x,
+				       grid_size, grid_size, wkern_dat->w_step, theta, 0, 0, 0);
   cudaEventCreate(&stop);
   cudaEventRecord(stop, 0);
 
   cudaEventSynchronize(stop);
   cudaEventElapsedTime(&elapsedTime,start,stop);
 
-  std::cout << "Scatter Gridder Elapsed Time: " << elapsedTime << "\n";
+  std::cout << "Scatter Gridder Elapsed Time: " << elapsedTime/1000.0 << " seconds\n";
 
 
-  //free_vis_CUDA(vis_dat);
-
-  
-
-  //Create FFT Plans for our frequent fft's.
-
-  
-
-  //This needs a kernel at some point.
-  
-  
+  free_vis_CUDA(vis_dat);
   //Transfer back to host.
   cudaError_check(cudaMemcpy(grid_host, grid_dev, total_gs * sizeof(cuDoubleComplex),
-			     cudaMemcpyDeviceToHost));  
-  fft_shift(grid_host, grid_size);
-  make_hermitian(grid_host, grid_size);
+			     cudaMemcpyDeviceToHost));
+
 
 
 //Write Image to disk on host.
@@ -877,19 +906,17 @@ __host__ cudaError_t wprojection_CUDA(const char* visfile, const char* wkernfile
     }
     image_pref.write((char*)row, sizeof(double) * grid_size);
   }
-
   image_pref.close();
 
+
   
+  fft_shift(grid_host, grid_size);
+  make_hermitian(grid_host, grid_size);
 
 
   
   cudaError_check(cudaMemcpy(grid_dev, grid_host, total_gs * sizeof(cuDoubleComplex),
 			     cudaMemcpyHostToDevice));
-
-
-  
-  
   
   std::cout << "Executing iFFT back to Image Space... \n";
   
@@ -909,6 +936,151 @@ __host__ cudaError_t wprojection_CUDA(const char* visfile, const char* wkernfile
 
   //double *row;
   //cudaError_check(cudaMallocHost(&row, grid_size * sizeof(double)));
+  fft_shift(grid_host,grid_size);
+  for(int i = 0; i < grid_size; ++i){
+
+    for(int j = 0; j< grid_size; ++j){
+
+      row[j] = cuCreal(grid_host[i*grid_size + j]);
+    }
+    image_f.write((char*)row, sizeof(double) * grid_size);
+  }
+
+  image_f.close();
+
+  //Check it actually ran...
+  cudaError_t err = cudaGetLastError();
+  
+
+  std::cout << "Error: " << cudaGetErrorString(err) << "\n";
+  return err;
+}
+
+// W-Project on flat SoA Dataset.
+__host__ cudaError_t wprojection_CUDA_flat(const char* visfile, const char* wkernfile, int grid_size,
+				      double theta,  double lambda, double bl_min, double bl_max,
+				      int threads_per_block){
+
+  //For Benchmarking.
+  
+  cudaError_t error;
+  cudaEvent_t start, stop;
+  float elapsedTime;
+
+  // Load visibility and w-kernel data from HDF5 files.
+  
+  struct vis_data *vis_dat;
+  struct w_kernel_data *wkern_dat;
+
+  cudaError_check(cudaMallocManaged((void **)&vis_dat, sizeof(struct vis_data), cudaMemAttachGlobal));
+  cudaError_check(cudaMallocManaged((void **)&wkern_dat, sizeof(struct w_kernel_data), cudaMemAttachGlobal));
+
+  int error_hdf5;
+  error_hdf5 = load_vis_CUDA(visfile,vis_dat,bl_min,bl_max);
+  if (error_hdf5) {
+    std::cout << "Failed to Load Visibilities \n";
+    return error;
+  }
+  error_hdf5 = load_wkern_CUDA(wkernfile, theta, wkern_dat);
+  if (error_hdf5) {
+    std::cout << "Failed to Load W-Kernels \n";
+    return error;
+  }
+
+  //Allocate our main grid.
+  
+  int total_gs = grid_size * grid_size;
+  
+  cuDoubleComplex *grid_dev, *grid_host;
+  cudaError_check(cudaMalloc((void **)&grid_dev, total_gs * sizeof(cuDoubleComplex)));
+  cudaError_check(cudaMallocHost((void **)&grid_host, total_gs * sizeof(cuDoubleComplex)));
+
+  struct flat_vis_data *flat_vis_dat;
+  cudaError_check(cudaMallocManaged((void**)&flat_vis_dat, sizeof(struct flat_vis_data), cudaMemAttachGlobal));
+
+  //Flatten the visibilities and weight them.
+  flatten_visibilities_CUDA(vis_dat,flat_vis_dat);
+  weight_flat((unsigned int *)grid_host, grid_size, theta, flat_vis_dat);
+
+  //Now bin them per block.
+  struct flat_vis_data *vis_bins;
+  cudaError_check(cudaMallocManaged((void**)&vis_bins, sizeof(struct flat_vis_data) * 256, cudaMemAttachGlobal));
+
+  bin_flat_visibilities(vis_bins, flat_vis_dat, 256);
+  
+
+  
+  std::cout << "Inititalise scatter gridder... \n";
+
+  cudaEventCreate(&start);
+  cudaEventRecord(start, 0);
+
+  scatter_grid_kernel_flat <<< 256, 32 >>> (vis_bins, wkern_dat, grid_dev, wkern_dat->size_x,
+  					  grid_size, grid_size, wkern_dat->w_step, theta, 0, 0, 0);
+  
+  cudaEventCreate(&stop);
+  cudaEventRecord(stop, 0);
+
+  cudaEventSynchronize(stop);
+  cudaEventElapsedTime(&elapsedTime,start,stop);
+
+  std::cout << "Scatter Gridder Elapsed Time: " << elapsedTime/1000.0 << " seconds\n";
+
+
+  //free_vis_CUDA(vis_dat);
+  //This needs a kernel at some point.
+  
+  //Transfer back to host.
+  cudaError_check(cudaMemcpy(grid_host, grid_dev, total_gs * sizeof(cuDoubleComplex),
+			     cudaMemcpyDeviceToHost));
+
+
+
+//Write Image to disk on host.
+
+  std::ofstream image_pref ("pre_fft.out", std::ofstream::out | std::ofstream::binary);
+  std::cout << "Writing Image to File... \n";
+
+  double *row;
+  cudaError_check(cudaMallocHost(&row, grid_size * sizeof(double)));
+
+      
+  for(int i = 0; i < grid_size; ++i){
+
+    for(int j = 0; j< grid_size; ++j){
+      
+      row[j] = cuCreal(grid_host[i*grid_size + j]);
+    }
+    image_pref.write((char*)row, sizeof(double) * grid_size);
+  }
+  image_pref.close();
+
+
+  
+  fft_shift(grid_host, grid_size);
+  make_hermitian(grid_host, grid_size);
+
+
+  
+  cudaError_check(cudaMemcpy(grid_dev, grid_host, total_gs * sizeof(cuDoubleComplex),
+			     cudaMemcpyHostToDevice));
+  
+  std::cout << "Executing iFFT back to Image Space... \n";
+  
+  cufftHandle fft_plan;
+  cuFFTError_check(cufftPlan2d(&fft_plan,grid_size,grid_size,CUFFT_Z2Z));
+  cuFFTError_check(cufftExecZ2Z(fft_plan, grid_dev, grid_dev, CUFFT_INVERSE));
+
+  //Transfer back to host.
+  cudaError_check(cudaMemcpy(grid_host, grid_dev, total_gs * sizeof(cuDoubleComplex),
+			     cudaMemcpyDeviceToHost));
+
+
+  //Write Image to disk on host.
+
+  std::ofstream image_f ("image.out", std::ofstream::out | std::ofstream::binary);
+  std::cout << "Writing Image to File... \n";
+
   fft_shift(grid_host,grid_size);
   for(int i = 0; i < grid_size; ++i){
 
