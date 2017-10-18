@@ -36,10 +36,10 @@ void flatten_visibilities_CUDA(struct vis_data *vis, struct flat_vis_data *flat_
     }
   }
 
-  cudaMallocManaged((void**)&flat_vis->u, sizeof(double) * flat_vis_iter, cudaMemAttachGlobal);
-  cudaMallocManaged((void**)&flat_vis->v, sizeof(double) * flat_vis_iter, cudaMemAttachGlobal);
-  cudaMallocManaged((void**)&flat_vis->w, sizeof(double) * flat_vis_iter, cudaMemAttachGlobal);
-  cudaMallocManaged((void**)&flat_vis->vis, sizeof(double _Complex) * flat_vis_iter, cudaMemAttachGlobal);
+  cudaMallocHost((void**)&flat_vis->u, sizeof(double) * flat_vis_iter);
+  cudaMallocHost((void**)&flat_vis->v, sizeof(double) * flat_vis_iter);
+  cudaMallocHost((void**)&flat_vis->w, sizeof(double) * flat_vis_iter);
+  cudaMallocHost((void**)&flat_vis->vis, sizeof(cuDoubleComplex) * flat_vis_iter);
 
 
   int total_vis = flat_vis_iter;
@@ -50,14 +50,12 @@ void flatten_visibilities_CUDA(struct vis_data *vis, struct flat_vis_data *flat_
     for(int time = 0; time< bl_d.time_count;++time){
       for(int freq = 0; freq< bl_d.freq_count;++freq){
 	++flat_vis_iter;
-
 	//Flatten
 
 	
 	flat_vis->u[flat_vis_iter] = uvw_lambda(&bl_d, time, freq, 0);
 	flat_vis->v[flat_vis_iter] = uvw_lambda(&bl_d, time, freq, 1);
 	flat_vis->w[flat_vis_iter] = uvw_lambda(&bl_d, time, freq, 2);
-
 	flat_vis->vis[flat_vis_iter] = bl_d.vis[time*bl_d.freq_count+freq];
 	
 	
@@ -926,9 +924,15 @@ int load_wkern_CUDA(const char *filename, double theta, struct w_kernel_data *wk
         // Set
         wkern->kern_by_w[i] = wkern->kern[best];
     }
+
+#ifdef VAR_W_KERN
     printf("w kernels:   %.2f - %.2f lambda (step %.2f lambda)\n",
            wkern->w_min, wkern->w_max, wkern->w_step);
-
+#else
+    
+    printf("w kernels:   %.2f - %.2f lambda (step %.2f lambda) Dimensions: %d x %d\n",
+           wkern->w_min, wkern->w_max, wkern->w_step, wkern->size_x, wkern->size_y);
+#endif
     return 0;
 }
 
