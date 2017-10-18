@@ -533,6 +533,8 @@ __host__ inline void make_hermitian(cuDoubleComplex *uvgrid, int grid_size){
 __host__ inline void bin_flat_visibilities(struct flat_vis_data *vis_bins, struct flat_vis_data *vis,
 					   int blocks){
 
+  std::cout << "Binning Visibilities. No. of vis: " << vis->number_of_vis << " No. of Blocks: " << blocks << "\n";
+  
   int vis_per_block = vis->number_of_vis / blocks;
   int leftovers = vis->number_of_vis % blocks;
 
@@ -786,6 +788,8 @@ __host__ cudaError_t wprojection_CUDA(const char* visfile, const char* wkernfile
   cudaError_check(cudaMalloc((void **)&grid_dev, total_gs * sizeof(cuDoubleComplex)));
   cudaError_check(cudaMallocHost((void **)&grid_host, total_gs * sizeof(cuDoubleComplex)));
 
+
+  
   int blocks = total_gs / 256;
 
   //Weight visibilities
@@ -901,14 +905,18 @@ __host__ cudaError_t wprojection_CUDA_flat(const char* visfile, const char* wker
 
   // Load visibility and w-kernel data from HDF5 files.
   
-  struct vis_data *vis_dat;
+  struct vis_data *vis_dat = (struct vis_data*)malloc(sizeof(struct vis_data));
+
+  vis_dat->antenna_count = 0;
+  
   struct w_kernel_data *wkern_dat;
 
-  cudaError_check(cudaMallocManaged((void **)&vis_dat, sizeof(struct vis_data), cudaMemAttachGlobal));
+  //cudaMallocHost((void **)&vis_dat, sizeof(struct vis_data));
+  //cudaError_check(cudaMallocHost((void **)&vis_dat, sizeof(struct vis_data)));
   cudaError_check(cudaMallocManaged((void **)&wkern_dat, sizeof(struct w_kernel_data), cudaMemAttachGlobal));
 
   int error_hdf5;
-  error_hdf5 = load_vis_CUDA(visfile,vis_dat,bl_min,bl_max);
+  error_hdf5 = load_vis(visfile,vis_dat,bl_min,bl_max);
   if (error_hdf5) {
     std::cout << "Failed to Load Visibilities \n";
     return error;
@@ -927,27 +935,34 @@ __host__ cudaError_t wprojection_CUDA_flat(const char* visfile, const char* wker
   cudaError_check(cudaMalloc((void **)&grid_dev, total_gs * sizeof(cuDoubleComplex)));
   cudaError_check(cudaMallocHost((void **)&grid_host, total_gs * sizeof(cuDoubleComplex)));
 
+  //Make sure our grids are all zero.
+  
+  cudaError_check(cudaMemset(grid_dev, 0, total_gs * sizeof(cuDoubleComplex)));
+  cudaError_check(cudaMemset(grid_host, 0, total_gs * sizeof(cuDoubleComplex)));
+
+  
   struct flat_vis_data *flat_vis_dat;
-  cudaError_check(cudaMallocManaged((void**)&flat_vis_dat, sizeof(struct flat_vis_data), cudaMemAttachGlobal));
+  cudaError_check(cudaMallocHost((void**)&flat_vis_dat, sizeof(struct flat_vis_data)));
 
   //Flatten the visibilities and weight them.
   flatten_visibilities_CUDA(vis_dat,flat_vis_dat);
   weight_flat((unsigned int *)grid_host, grid_size, theta, flat_vis_dat);
 
+
+  
   //Now bin them per block.
   struct flat_vis_data *vis_bins;
-  cudaError_check(cudaMallocManaged((void**)&vis_bins, sizeof(struct flat_vis_data) * 256, cudaMemAttachGlobal));
+  cudaError_check(cudaMallocManaged((void**)&vis_bins, sizeof(struct flat_vis_data) * 2048, cudaMemAttachGlobal));
 
-  bin_flat_visibilities(vis_bins, flat_vis_dat, 256);
+  bin_flat_visibilities(vis_bins, flat_vis_dat, 2048);
   
 
-  
+  //Get scattering..
   std::cout << "Inititalise scatter gridder... \n";
-
   cudaEventCreate(&start);
   cudaEventRecord(start, 0);
 
-  scatter_grid_kernel_flat <<< 256, 32 >>> (vis_bins, wkern_dat, grid_dev, wkern_dat->size_x,
+  scatter_grid_kernel_flat <<< 2048, 128 >>> (vis_bins, wkern_dat, grid_dev, wkern_dat->size_x,
   					  grid_size, grid_size, wkern_dat->w_step, theta, 0, 0, 0);
   
   cudaEventCreate(&stop);
@@ -958,6 +973,8 @@ __host__ cudaError_t wprojection_CUDA_flat(const char* visfile, const char* wker
 
   std::cout << "Scatter Gridder Elapsed Time: " << elapsedTime/1000.0 << " seconds\n";
 
+  
+  cudaError_check(cudaDeviceSynchronize());
 
   //free_vis_CUDA(vis_dat);
   //This needs a kernel at some point.
@@ -1027,8 +1044,9 @@ __host__ cudaError_t wprojection_CUDA_flat(const char* visfile, const char* wker
 
   //Check it actually ran...
   cudaError_t err = cudaGetLastError();
-  
-
   std::cout << "Error: " << cudaGetErrorString(err) << "\n";
+
+  cudaError_check(cudaDeviceReset());
+  
   return err;
 } 
