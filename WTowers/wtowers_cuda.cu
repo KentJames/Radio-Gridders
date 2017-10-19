@@ -100,7 +100,6 @@ __host__ __device__ inline static void frac_coord_flat(int grid_size, int kernel
 }
 
 
-
 __host__ __device__ inline static void frac_coord(int grid_size, int kernel_size, int oversample,
                               double theta,
                               struct bl_data *bl_data,
@@ -897,6 +896,7 @@ __host__ cudaError_t wprojection_CUDA_flat(const char* visfile, const char* wker
 				      double theta,  double lambda, double bl_min, double bl_max,
 				      int threads_per_block){
 
+  cudaDeviceSetCacheConfig(cudaFuncCachePreferL1);
   //For Benchmarking.
   
   cudaError_t error = (cudaError_t)0;
