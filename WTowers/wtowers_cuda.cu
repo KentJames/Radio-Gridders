@@ -252,7 +252,10 @@ __device__ inline void scatter_grid_point(
 					  double theta, // Field of View Size
 					  int offset_u, // Offset from top left of main grid to t.l of subgrid.
 					  int offset_v, // ^^^^
-					  int offset_w
+					  int offset_w,
+					  double3 u_rng,
+					  double3 v_rng,
+					  double3 w_rng
 					  ){ 
 
   int grid_point_u = myU, grid_point_v = myV;
@@ -264,6 +267,19 @@ __device__ inline void scatter_grid_point(
   int bl, time, freq;
   for (bl = 0; bl < bl_count; ++bl){
     struct bl_data *bl_d = *bin+bl;
+
+    //Keep this for now. It reduces performance by 50%.
+    // TODO: Bounds check elsewhere.
+    if(lambda_max(bl_d, bl_d->u_max) < u_rng.x ||
+       lambda_min(bl_d, bl_d->u_min) >= u_rng.y ||
+       lambda_max(bl_d, bl_d->v_max) < v_rng.x ||
+       lambda_min(bl_d, bl_d->v_min) >= v_rng.y ||
+       lambda_max(bl_d, bl_d->w_max) < w_rng.x ||
+       lambda_min(bl_d, bl_d->w_min) >= w_rng.y) {
+      continue;//Skip
+    }
+    
+    
     for (time = 0; time < bl_d->time_count; ++time){
       for(freq = 0; freq < bl_d->freq_count; ++freq){
 	// Load pre-calculated positions
@@ -399,20 +415,21 @@ __global__ void scatter_grid_kernel_flat(
 }
 
 
-//This is our Romein-style scatter gridder. Works on hierarchical visibility data (bl->time->freq)
+//This is our Romein-style scatter gridder. Works on hierarchical visibility data (bl->time->freq).
 __global__ void scatter_grid_kernel(struct bl_data **bin, // Baseline bin
 				    int bl_count, // No. of baselines
-				    struct vis_data *vis, // No. of visibilities
 				    struct w_kernel_data *wkern, // No. of wkernels
 				    cuDoubleComplex *uvgrid, //Our UV-Grid
 				    int max_support, //  Convolution size
 				    int subgrid_size, // Subgrid size
-				    int subgrid_pitch, // Subgrid pitch (what is this?)
 				    double wstep, // W-Increment
 				    double theta, // Field of View
 				    int offset_u, // Top left offset from top left main grid
 				    int offset_v, // ^^^^
-				    int offset_w // W Offset
+				    int offset_w,
+				    double3 u_rng,
+				    double3 v_rng,
+				    double3 w_rng				   
 				    ){
   
   for(int i = threadIdx.x; i < max_support * max_support; i += blockDim.x){
@@ -421,7 +438,8 @@ __global__ void scatter_grid_kernel(struct bl_data **bin, // Baseline bin
     int myV = i / max_support;
 
     scatter_grid_point(bin, bl_count, uvgrid, wkern, max_support, myU, myV, wstep,
-		       subgrid_size, subgrid_pitch, theta, offset_u, offset_v, offset_w);
+		       subgrid_size, subgrid_size, theta, offset_u, offset_v, offset_w,
+		       u_rng, v_rng, w_rng);
 		       
   }
 }
@@ -438,7 +456,7 @@ __global__ void wtowers_kernel(cuDoubleComplex *subimg, //Subimg (Image Space)
 			       double wstep, // Increment/delta between w-planes
 			       double theta, // Field of View
 			       int offset_u, //Offset of our chunks top-left compared to grids top left.
-			       int offset_v, //Same as above but for V
+  			       int offset_v, //Same as above but for V
 			       int offset_w, //Offset w-plane, generally to mid-point.
 			       int wp_min, //Miniumum w-plane
 			       int wp_max){ //Maximum w-plane
@@ -456,16 +474,6 @@ __global__ void wtowers_kernel(cuDoubleComplex *subimg, //Subimg (Image Space)
 /******************************
 	  Host Functions
 *******************************/
-
-//Gets minimum/maximum co-ordinate in a particular baseline.
-__host__ inline double lambda_min(struct bl_data *bl_data, double u) {
-    return u * (u < 0 ? bl_data->f_max : bl_data->f_min) / c;
-}
-
-__host__ inline double lambda_max(struct bl_data *bl_data, double u) {
-    return u * (u < 0 ? bl_data->f_min : bl_data->f_max) / c;
-}
-
 
 __host__ inline void init_grid_zero(cuDoubleComplex *uvgrid, int grid_size){
 
@@ -764,7 +772,24 @@ __host__ cudaError_t wtowers_CUDA(const char* visfile, const char* wkernfile, in
     return error;
   }
 
+  // Work out our minimum and maximum w-planes.
 
+  double vis_w_min = 0, vis_w_max = 0;
+
+  for (int bl = 0; bl < vis_dat->bl_count; ++bl){
+
+    double w_min = lambda_min(&vis_dat->bl[bl], vis_dat->bl[bl].w_min);
+    double w_max = lambda_max(&vis_dat->bl[bl], vis_dat->bl[bl].w_max);
+    if (w_min < vis_w_min) { vis_w_min = w_min; }
+    if (w_max > vis_w_max) { vis_w_max = w_max; }
+    
+  }
+
+  int wp_min = (int) floor(vis_w_min / wincrement + 0.5);
+  int wp_max = (int) floor(vis_w_max / wincrement + 0.5);
+
+
+  
   //Allocate our main grid.
   
   int total_gs = grid_size * grid_size;
@@ -797,7 +822,7 @@ __host__ cudaError_t wtowers_CUDA(const char* visfile, const char* wkernfile, in
 
   }
 
-  //Initialise cublas handle.
+  //Initialise cublas handle. We use cublas to multiply our fresnel phase screen.
 
   stat = cublasCreate(&handle);
   if (stat != CUBLAS_STATUS_SUCCESS) {
@@ -837,8 +862,7 @@ __host__ cudaError_t wtowers_CUDA(const char* visfile, const char* wkernfile, in
   }
 
   struct bl_data ***bins;
-  int wp_max, wp_min;
-  cudaError_check(cudaMallocManaged(&bins, total_chunks * sizeof(void *), cudaMemAttachGlobal));
+    cudaError_check(cudaMallocManaged(&bins, total_chunks * sizeof(void *), cudaMemAttachGlobal));
   cudaError_check(cudaMemset(bins, 0, total_chunks * sizeof(void *)));
   
 
@@ -851,25 +875,40 @@ __host__ cudaError_t wtowers_CUDA(const char* visfile, const char* wkernfile, in
   int shift_blocks = subgrid_size / shift_threads;
 
   dim3 blocks_shift(shift_blocks,shift_blocks);
-  
-  
 
+  int fft_gs = 32;
+  int fft_bs = subgrid_size/fft_gs;
+  dim3 dimBlock(fft_bs,fft_bs);
+  dim3 dimGrid(fft_gs,fft_gs);
+
+  double3 u_rng;
+  double3 v_rng;
+  double3 w_rng;
+  
   // Lets get gridding!
   for(int chunk = 0; chunk < total_chunks; ++chunk){
 
-    int chunk_x = chunk % chunk_count_1d;
-    int chunk_y = chunk / chunk_count_1d;
+    //int chunk_x = chunk % chunk_count_1d;
+    //int chunk_y = chunk / chunk_count_1d;
 
-    int offset_x = chunk_x * subgrid_size;
-    int offset_y = chunk_y * subgrid_size;
+    //int offset_x = chunk_x * subgrid_size;
+    //int offset_y = chunk_y * subgrid_siwze;
+    for(int wp = wp_min; wp<=wp_max; ++wp){
 
-    scatter_grid_kernel <<< 1, 64, 0, streams[chunk] >>>
-			     (bins[chunk], vis_dat->bl_count,
-			      vis_dat, wkern_dat, subgrids[chunk], wkern_dat->size_x,
-			      subgrid_size, subgrid_size, wkern_dat->w_step, theta,
-			      offset_x, offset_y, 0);
-    fresnel_blas_mmul(handle, subgrids[chunk], wtransfer, subimgs[chunk], subgrid_size);
+      double w_mid = (double)wp * wincrement;
+      double w_min = ((double)wp - 0.5) * wincrement;
+      double w_max = ((double)wp + 0.5) * wincrement;
 
+      scatter_grid_kernel <<< 1, 64, 0, streams[chunk] >>>
+	(bins[chunk], vis_dat->bl_count, wkern_dat, subgrids[chunk], wkern_dat->size_x,
+	 subgrid_size, wkern_dat->w_step, theta,
+	 0, 0, 0, u_rng, v_rng, w_rng);
+      fft_shift_kernel <<< dimBlock, dimGrid, 0, streams[chunk] >>> (subgrids[chunk],subgrid_size);
+      cuFFTError_check(cufftExecZ2Z(fft_plan, subgrids[chunk], subgrids[chunk], CUFFT_INVERSE));
+      fft_shift_kernel <<< dimBlock, dimGrid, 0, streams[chunk] >>> (subgrids[chunk],subgrid_size);
+      fresnel_blas_mmul(handle, subgrids[chunk], wtransfer, subimgs[chunk], subgrid_size);
+      
+    }
 			     
 
   }
@@ -943,12 +982,15 @@ __host__ cudaError_t wprojection_CUDA(const char* visfile, const char* wkernfile
   cudaEventCreate(&start);
   cudaEventRecord(start, 0);
 
+  double3 u_rng = {-10e100,10e100,0};
+  double3 v_rng = {-10e100,10e100,0};
+  double3 w_rng = {-10e100,10e100,0};
 
   //scatter_grid_kernel_flat <<< 16, 32 >>> (flat_vis_dat, wkern_dat, grid_dev, wkern_dat->size_x,
   //					  grid_size, grid_size, wkern_dat->w_step, theta, 0, 0, 0);
   //
   scatter_grid_kernel <<< 16 , 32 >>> (bl_d,vis_dat->bl_count,wkern_dat, grid_dev, wkern_dat->size_x,
-				       grid_size,wkern_dat->w_step, theta, 0, 0, 0);
+				       grid_size,wkern_dat->w_step, theta, 0, 0, 0, u_rng, v_rng, w_rng);
   cudaEventCreate(&stop);
   cudaEventRecord(stop, 0);
 
