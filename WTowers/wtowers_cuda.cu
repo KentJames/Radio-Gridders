@@ -72,6 +72,16 @@ __host__ __device__ inline cuDoubleComplex cu_cexp_d (cuDoubleComplex z){
 
 }
 
+//Gets minimum/maximum co-ordinate in a particular baseline.
+__host__ __device__ inline double lambda_min(struct bl_data *bl_data, double u) {
+    return u * (u < 0 ? bl_data->f_max : bl_data->f_min) / c;
+}
+
+__host__ __device__ inline double lambda_max(struct bl_data *bl_data, double u) {
+    return u * (u < 0 ? bl_data->f_min : bl_data->f_max) / c;
+}
+
+
 __host__ __device__ inline static double uvw_lambda(struct bl_data *bl_data,
 				  int time, int freq, int uvw) {
     return bl_data->uvw[3*time+uvw] * bl_data->freq[freq] / c;

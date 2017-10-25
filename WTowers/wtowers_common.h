@@ -32,9 +32,9 @@ __global__ void fresnel_pattern_kernel(cuDoubleComplex *subimg, cuDoubleComplex 
 
 __host__ void cudaReallocManaged(void **ptr, int size, int size_original);
 
-__host__ inline double lambda_min(struct bl_data *bl_data, double u);
+__host__ __device__ inline double lambda_min(struct bl_data *bl_data, double u);
 
-__host__ inline double lambda_max(struct bl_data *bl_data, double u);
+__host__ __device__ inline double lambda_max(struct bl_data *bl_data, double u);
 
 __host__ inline void fft_shift(cuDoubleComplex *uvgrid, int grid_size);
 
