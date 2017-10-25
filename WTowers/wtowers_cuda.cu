@@ -61,6 +61,8 @@ __device__ double atomicAdd(double* address, double val)
 
 #endif
 
+// Complex functions that I wished were implemented...
+
 __host__ __device__ inline cuDoubleComplex cu_cexp_d (cuDoubleComplex z){
 
   cuDoubleComplex res;
@@ -71,6 +73,22 @@ __host__ __device__ inline cuDoubleComplex cu_cexp_d (cuDoubleComplex z){
   return res;
 
 }
+
+//Stolen from Peter Wortmann (who stole it from Stack Overflow)
+__host__ __device__ inline cuDoubleComplex cu_cpow(cuDoubleComplex base, int exp){
+
+  cuDoubleComplex result = make_cuDoubleComplex(1.0,1.0);
+  //Can't recurse on a device function!!!
+  //  if (exp < 0) return cuCdiv(make_cuDoubleComplex(1.0,1.0), cu_cpow(base, -exp));
+  if (exp == 1) return base;
+  while (exp){
+    if (exp & 1) result = cuCmul(base,result);
+    exp >>= 1;
+    base = cuCmul(base,base);
+  }
+  return result;
+}
+
 
 //Gets minimum/maximum co-ordinate in a particular baseline.
 __host__ __device__ inline double lambda_min(struct bl_data *bl_data, double u) {
@@ -356,10 +374,20 @@ inline void fresnel_blas_mmul(cublasHandle_t &handle,
 
   //Complex->Complex cublas matrix multiplication.
   cublasZgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, n, n, n, alpha,
-	      subgrid, n, fresnel, n, beta, subgrid, n);
+	      subimg, n, fresnel, n, beta, subgrid, n);
 
   cublasZaxpy(handle, n*n, beta, subgrid, 1, subimg, 1);
   
+
+}
+
+__global__ void w0_transfer_kernel(cuDoubleComplex *grid, cuDoubleComplex *base, int exp, int size){
+
+  int x = blockIdx.x * blockDim.x + threadIdx.x;
+
+  
+  grid[x] = cuCdiv(grid[x],cu_cpow(base[x],exp));
+
 
 }
 
@@ -377,7 +405,6 @@ __global__ void fft_shift_kernel(cuDoubleComplex *grid, int size){
     cuDoubleComplex temp = grid[ix0];
     grid[ix0] = grid[ix1];
     grid[ix1] = temp;
-
 
   }
 
@@ -444,33 +471,6 @@ __global__ void scatter_grid_kernel(struct bl_data **bin, // Baseline bin
   }
 }
 
-
-//This kernel uses CUDA's dynamic parallelism (compute > 35) to repeatedly call kernels to
-//grid and then multiply the fresnel pattern for each CHUNK. The result is atomically added to the uvgrid.
-//Unfortunately this has to be host managed due to cufft being a host API.
-__global__ void wtowers_kernel(cuDoubleComplex *subimg, //Subimg (Image Space)
-			       cuDoubleComplex *subgrid, //Subgrid (Fourier Space)
-			       cuDoubleComplex *fresnel, // The fresnel pattern
-			       struct bl_data **bin, // Baseline bin for our chunk
-			       int subgrid_size, //Grid size in pixels
-			       double wstep, // Increment/delta between w-planes
-			       double theta, // Field of View
-			       int offset_u, //Offset of our chunks top-left compared to grids top left.
-  			       int offset_v, //Same as above but for V
-			       int offset_w, //Offset w-plane, generally to mid-point.
-			       int wp_min, //Miniumum w-plane
-			       int wp_max){ //Maximum w-plane
-
-  int last_wp = wp_min;
-  for (int wp = wp_min; wp <= wp_max; wp++){
-
-    
-
-  }
-
-
-  
-}
 /******************************
 	  Host Functions
 *******************************/
@@ -893,11 +893,14 @@ __host__ cudaError_t wtowers_CUDA(const char* visfile, const char* wkernfile, in
 
     //int offset_x = chunk_x * subgrid_size;
     //int offset_y = chunk_y * subgrid_siwze;
+    int last_wp = wp_min;
     for(int wp = wp_min; wp<=wp_max; ++wp){
 
       double w_mid = (double)wp * wincrement;
       double w_min = ((double)wp - 0.5) * wincrement;
       double w_max = ((double)wp + 0.5) * wincrement;
+
+      w_rng = {w_min, w_max, w_mid};
 
       scatter_grid_kernel <<< 1, 64, 0, streams[chunk] >>>
 	(bins[chunk], vis_dat->bl_count, wkern_dat, subgrids[chunk], wkern_dat->size_x,
@@ -907,11 +910,17 @@ __host__ cudaError_t wtowers_CUDA(const char* visfile, const char* wkernfile, in
       cuFFTError_check(cufftExecZ2Z(fft_plan, subgrids[chunk], subgrids[chunk], CUFFT_INVERSE));
       fft_shift_kernel <<< dimBlock, dimGrid, 0, streams[chunk] >>> (subgrids[chunk],subgrid_size);
       fresnel_blas_mmul(handle, subgrids[chunk], wtransfer, subimgs[chunk], subgrid_size);
-      
+
+      last_wp = wp;
     }
-			     
+
+    w0_transfer_kernel <<< (subgrid_size*subgrid_size/64) , 64 >>>
+      (subimgs[chunk], wtransfer, last_wp, subgrid_size);
+    
 
   }
+
+  
 
   cudaEventCreate(&stop);
   cudaEventRecord(stop,0);
