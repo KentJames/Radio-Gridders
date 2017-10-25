@@ -350,6 +350,25 @@ void fresnel_blas_mmul(cublasHandle_t &handle,
 
 }
 
+//Shifts a 2D grid to be in the right place for an FFT. 
+__global__ void fft_shift_kernel(cuDoubleComplex *grid, int size){
+
+  int x = blockIdx.x * blockDim.x + threadIdx.x;
+  int y = blockIdx.y * blockDim.y + threadIdx.y;
+
+  if(x<size/2 && y <size){
+
+    int ix0 = y * size + x;
+    int ix1 = (ix0 + (size + 1) * (size/2)) % (size*size);
+
+    cuDoubleComplex temp = grid[ix0];
+    grid[ix0] = grid[ix1];
+    grid[ix1] = temp;
+
+
+  }
+
+}
 
 //This is our Romein-style scatter gridder. Works on flat visibility data.
 __global__ void scatter_grid_kernel_flat(
