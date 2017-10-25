@@ -359,18 +359,18 @@ __global__ void fft_shift_kernel(cuDoubleComplex *grid, int size){
 
 //This is our Romein-style scatter gridder. Works on flat visibility data.
 __global__ void scatter_grid_kernel_flat(
-				    struct flat_vis_data *vis, // No. of visibilities
-				    struct w_kernel_data *wkern, // No. of wkernels
-				    cuDoubleComplex *uvgrid, //Our UV-Grid
-				    int max_support, //  Convolution size
-				    int subgrid_size, // Subgrid size
-				    int subgrid_pitch, // Subgrid pitch (what is this?)
-				    double wstep, // W-Increment
-				    double theta, // Field of View
-				    int offset_u, // Top left offset from top left main grid
-				    int offset_v, // ^^^^
-				    int offset_w // W Offset
-				    ){
+					 struct flat_vis_data *vis, // No. of visibilities
+					 struct w_kernel_data *wkern, // No. of wkernels
+					 cuDoubleComplex *uvgrid, //Our UV-Grid
+					 int max_support, //  Convolution size
+					 int subgrid_size, // Subgrid size
+					 int subgrid_pitch, // Subgrid pitch (what is this?)
+					 double wstep, // W-Increment
+					 double theta, // Field of View
+					 int offset_u, // Top left offset from top left main grid
+					 int offset_v, // ^^^^
+					 int offset_w
+					 ){
 
   //Assign some visibilities to grid;
 
@@ -933,12 +933,12 @@ __host__ cudaError_t wprojection_CUDA(const char* visfile, const char* wkernfile
   cudaEventCreate(&start);
   cudaEventRecord(start, 0);
 
+
   //scatter_grid_kernel_flat <<< 16, 32 >>> (flat_vis_dat, wkern_dat, grid_dev, wkern_dat->size_x,
   //					  grid_size, grid_size, wkern_dat->w_step, theta, 0, 0, 0);
   //
-  scatter_grid_kernel <<< 16 , 32 >>> (bl_d,vis_dat->bl_count,
-				       vis_dat, wkern_dat, grid_dev, wkern_dat->size_x,
-				       grid_size, grid_size, wkern_dat->w_step, theta, 0, 0, 0);
+  scatter_grid_kernel <<< 16 , 32 >>> (bl_d,vis_dat->bl_count,wkern_dat, grid_dev, wkern_dat->size_x,
+				       grid_size,wkern_dat->w_step, theta, 0, 0, 0);
   cudaEventCreate(&stop);
   cudaEventRecord(stop, 0);
 
@@ -947,9 +947,16 @@ __host__ cudaError_t wprojection_CUDA(const char* visfile, const char* wkernfile
 
   std::cout << "Scatter Gridder Elapsed Time: " << elapsedTime/1000.0 << " seconds\n";
 
+  //Shift our grid to the right position for the FFT.
+  int fft_gs = 32;
+  int fft_bs = grid_size / fft_gs;
+  
+  dim3 dimBlock(fft_bs,fft_bs);
+  dim3 dimGrid(fft_gs,fft_gs);
+  fft_shift_kernel <<< dimBlock, dimGrid >>> (grid_dev, grid_size);
+  
 
-  free_vis_CUDA(vis_dat);
-  //Transfer back to host.
+    //Transfer back to host.
   cudaError_check(cudaMemcpy(grid_host, grid_dev, total_gs * sizeof(cuDoubleComplex),
 			     cudaMemcpyDeviceToHost));
 
@@ -976,7 +983,7 @@ __host__ cudaError_t wprojection_CUDA(const char* visfile, const char* wkernfile
 
 
   
-  fft_shift(grid_host, grid_size);
+  //fft_shift(grid_host, grid_size);
   make_hermitian(grid_host, grid_size);
 
 
@@ -989,7 +996,7 @@ __host__ cudaError_t wprojection_CUDA(const char* visfile, const char* wkernfile
   cufftHandle fft_plan;
   cuFFTError_check(cufftPlan2d(&fft_plan,grid_size,grid_size,CUFFT_Z2Z));
   cuFFTError_check(cufftExecZ2Z(fft_plan, grid_dev, grid_dev, CUFFT_INVERSE));
-
+  fft_shift_kernel <<< dimBlock, dimGrid >>> (grid_dev, grid_size);
   //Transfer back to host.
   cudaError_check(cudaMemcpy(grid_host, grid_dev, total_gs * sizeof(cuDoubleComplex),
 			     cudaMemcpyDeviceToHost));
@@ -1002,8 +1009,7 @@ __host__ cudaError_t wprojection_CUDA(const char* visfile, const char* wkernfile
 
   //double *row;
   //cudaError_check(cudaMallocHost(&row, grid_size * sizeof(double)));
-  fft_shift(grid_host,grid_size);
-  for(int i = 0; i < grid_size; ++i){
+    for(int i = 0; i < grid_size; ++i){
 
     for(int j = 0; j< grid_size; ++j){
 
