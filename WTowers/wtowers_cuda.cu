@@ -42,19 +42,6 @@ inline void cufftAssert(cufftResult code, const char *file, int line, bool abort
         Device Functions
  *****************************/
 
-//This is meant to be used as a callback by cufft for store and load.
-__device__ cuDoubleComplex fft_shift_callback(cuDoubleComplex *grid, int offset,
-				      void *callerInfo, void *sharedPtr){
-
-  cuDoubleComplex out = grid[offset];
-
-  
-
-
-
-}
-
-
 #if !defined(__CUDA_ARCH__) || __CUDA_ARCH__ >= 600
 
 
@@ -329,7 +316,7 @@ __device__ inline void scatter_grid_point(
 
 //Multiplies our (inverse transformeD!) grid by the fresnel pattern and
 //then adds it to our subimg. Uses cuBLAS
-void fresnel_blas_mmul(cublasHandle_t &handle,
+inline void fresnel_blas_mmul(cublasHandle_t &handle,
 		       cuDoubleComplex *subgrid,
 		       cuDoubleComplex *fresnel,
 		       cuDoubleComplex *subimg,
@@ -1120,24 +1107,28 @@ __host__ cudaError_t wprojection_CUDA_flat(const char* visfile, const char* wker
   
   cudaError_check(cudaDeviceSynchronize());
 
-  //free_vis_CUDA(vis_dat);
-  //This needs a kernel at some point.
+  //Shift our grid to the right position for the FFT.
+  int fft_gs = 32;
+  int fft_bs = grid_size / fft_gs;
   
+  dim3 dimBlock(fft_bs,fft_bs);
+  dim3 dimGrid(fft_gs,fft_gs);
+  fft_shift_kernel <<< dimBlock, dimGrid >>> (grid_dev, grid_size);
   //Transfer back to host.
   cudaError_check(cudaMemcpy(grid_host, grid_dev, total_gs * sizeof(cuDoubleComplex),
 			     cudaMemcpyDeviceToHost));
 
 
 
-//Write Image to disk on host.
+  //Write Grid to disk on host.
 
   std::ofstream image_pref ("pre_fft.out", std::ofstream::out | std::ofstream::binary);
   std::cout << "Writing Image to File... \n";
-
+  
   double *row;
   cudaError_check(cudaMallocHost(&row, grid_size * sizeof(double)));
 
-      
+     
   for(int i = 0; i < grid_size; ++i){
 
     for(int j = 0; j< grid_size; ++j){
@@ -1150,20 +1141,21 @@ __host__ cudaError_t wprojection_CUDA_flat(const char* visfile, const char* wker
 
 
   
-  fft_shift(grid_host, grid_size);
+  
+  
   make_hermitian(grid_host, grid_size);
 
 
   
   cudaError_check(cudaMemcpy(grid_dev, grid_host, total_gs * sizeof(cuDoubleComplex),
-			     cudaMemcpyHostToDevice));
+  			     cudaMemcpyHostToDevice));
   
   std::cout << "Executing iFFT back to Image Space... \n";
   
   cufftHandle fft_plan;
   cuFFTError_check(cufftPlan2d(&fft_plan,grid_size,grid_size,CUFFT_Z2Z));
   cuFFTError_check(cufftExecZ2Z(fft_plan, grid_dev, grid_dev, CUFFT_INVERSE));
-
+  fft_shift_kernel <<< dimBlock, dimGrid >>> (grid_dev, grid_size);
   //Transfer back to host.
   cudaError_check(cudaMemcpy(grid_host, grid_dev, total_gs * sizeof(cuDoubleComplex),
 			     cudaMemcpyDeviceToHost));
@@ -1174,7 +1166,7 @@ __host__ cudaError_t wprojection_CUDA_flat(const char* visfile, const char* wker
   std::ofstream image_f ("image.out", std::ofstream::out | std::ofstream::binary);
   std::cout << "Writing Image to File... \n";
 
-  fft_shift(grid_host,grid_size);
+  //  fft_shift(grid_host,grid_size);
   for(int i = 0; i < grid_size; ++i){
 
     for(int j = 0; j< grid_size; ++j){
