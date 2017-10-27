@@ -80,6 +80,7 @@ __host__ __device__ inline cuDoubleComplex cu_cpow(cuDoubleComplex base, int exp
   cuDoubleComplex result = make_cuDoubleComplex(1.0,1.0);
   //Can't recurse on a device function!!!
   //  if (exp < 0) return cuCdiv(make_cuDoubleComplex(1.0,1.0), cu_cpow(base, -exp));
+  if (exp < 0) return base; 
   if (exp == 1) return base;
   while (exp){
     if (exp & 1) result = cuCmul(base,result);
@@ -381,13 +382,18 @@ inline void fresnel_blas_mmul(cublasHandle_t &handle,
 
 }
 
+__global__ void test_kernel(int one, int two){
+
+  int x = blockIdx.x * blockDim.x + threadIdx.x;
+
+}
+
 __global__ void w0_transfer_kernel(cuDoubleComplex *grid, cuDoubleComplex *base, int exp, int size){
 
   int x = blockIdx.x * blockDim.x + threadIdx.x;
 
-  
-  grid[x] = cuCdiv(grid[x],cu_cpow(base[x],exp));
-
+  if(x<size*size) grid[x] = cuCdiv(grid[x],cu_cpow(base[x],exp));
+  //if(x < size*size) base[x] = base[x];
 
 }
 
@@ -761,7 +767,7 @@ __host__ cudaError_t wtowers_CUDA(const char* visfile, const char* wkernfile, in
   cudaError_check(cudaMallocManaged((void **)&wkern_dat, sizeof(struct w_kernel_data), cudaMemAttachGlobal));
 
   int error_hdf5;
-  error_hdf5 = load_vis_CUDA(visfile,vis_dat,bl_min,1000);
+  error_hdf5 = load_vis_CUDA(visfile,vis_dat,bl_min,bl_max);
   if (error_hdf5) {
     std::cout << "Failed to Load Visibilities \n";
     return error;
@@ -775,18 +781,15 @@ __host__ cudaError_t wtowers_CUDA(const char* visfile, const char* wkernfile, in
   // Work out our minimum and maximum w-planes.
 
   double vis_w_min = 0, vis_w_max = 0;
-
   for (int bl = 0; bl < vis_dat->bl_count; ++bl){
-
     double w_min = lambda_min(&vis_dat->bl[bl], vis_dat->bl[bl].w_min);
     double w_max = lambda_max(&vis_dat->bl[bl], vis_dat->bl[bl].w_max);
     if (w_min < vis_w_min) { vis_w_min = w_min; }
     if (w_max > vis_w_max) { vis_w_max = w_max; }
-    
   }
-
   int wp_min = (int) floor(vis_w_min / wincrement + 0.5);
   int wp_max = (int) floor(vis_w_max / wincrement + 0.5);
+  std::cout << "Our W-Plane Min/Max: " << wp_min << " " << wp_max << "\n";
 
 
   
@@ -798,12 +801,13 @@ __host__ cudaError_t wtowers_CUDA(const char* visfile, const char* wkernfile, in
   cudaError_check(cudaMalloc((void **)&grid_dev, total_gs * sizeof(cuDoubleComplex)));
   cudaError_check(cudaMallocHost((void **)&grid_host, total_gs * sizeof(cuDoubleComplex)));
 
-  int subgrid_mem_size = sizeof(cuDoubleComplex) * subgrid_size * subgrid_size;
+
+
 
 
   //Create the fresnel interference pattern for the W-Dimension
   //See Tim Cornwells paper on W-Projection for more information.
-  
+  int subgrid_mem_size = sizeof(cuDoubleComplex) * subgrid_size * subgrid_size;  
   cuDoubleComplex *wtransfer;
   cudaError_check(cudaMallocManaged((void **)&wtransfer, subgrid_mem_size, cudaMemAttachGlobal));
 
@@ -841,13 +845,17 @@ __host__ cudaError_t wtowers_CUDA(const char* visfile, const char* wkernfile, in
   //Allocate subgrids/subimgs on the GPU
   
   assert( grid_size % subgrid_size == 0);
-  int chunk_count_1d = grid_size / subgrid_size;
+
+  int chunk_size = subgrid_size - subgrid_margin;
+  int chunk_count_1d = grid_size / chunk_size + 1;
   int total_chunks = chunk_count_1d * chunk_count_1d;
 
   cuDoubleComplex **subgrids, **subimgs;
 
-  cudaError_check(cudaMallocManaged(&subgrids, total_chunks * sizeof(cuDoubleComplex)));
-  cudaError_check(cudaMallocManaged(&subimgs, total_chunks * sizeof(cuDoubleComplex)));
+  cudaError_check(cudaMallocManaged((void **)&subgrids, total_chunks * sizeof(cuDoubleComplex*),
+				    cudaMemAttachGlobal));
+  cudaError_check(cudaMallocManaged((void **)&subimgs, total_chunks * sizeof(cuDoubleComplex*),
+				    cudaMemAttachGlobal));
 
   //Create streams for each tower and allocate our chunks in unified memory.
   
@@ -855,47 +863,38 @@ __host__ cudaError_t wtowers_CUDA(const char* visfile, const char* wkernfile, in
   for(int i = 0; i < total_chunks; ++i){
 
     cudaStreamCreate(&streams[i]);
-
-    cudaError_check(cudaMallocManaged(subgrids + i, subgrid_mem_size * sizeof(cuDoubleComplex)));
-    cudaError_check(cudaMallocManaged(subimgs + i, subgrid_mem_size * sizeof(cuDoubleComplex)));
-
+    cudaError_check(cudaMallocManaged((void**)&subgrids[i], subgrid_mem_size * sizeof(cuDoubleComplex), cudaMemAttachGlobal));
+    cudaError_check(cudaMallocManaged((void**)&subimgs[i], subgrid_mem_size * sizeof(cuDoubleComplex), cudaMemAttachGlobal));
   }
 
+  //Allocate our bins and Bin in U/V
   struct bl_data ***bins;
-    cudaError_check(cudaMallocManaged(&bins, total_chunks * sizeof(void *), cudaMemAttachGlobal));
+  cudaError_check(cudaMallocManaged(&bins, total_chunks * sizeof(void *), cudaMemAttachGlobal));
   cudaError_check(cudaMemset(bins, 0, total_chunks * sizeof(void *)));
-  
+  bin_visibilities(vis_dat, bins, chunk_count_1d, wincrement, theta, grid_size, chunk_size, &wp_min, &wp_max);
 
-  bin_visibilities(vis_dat, bins, chunk_count_1d, wincrement, theta, grid_size, subgrid_size, &wp_max, &wp_min);
-
-
+  //Record Start
   cudaEventCreate(&start);
   cudaEventRecord(start,0);
-  int shift_threads = 64;
-  int shift_blocks = subgrid_size / shift_threads;
-
-  dim3 blocks_shift(shift_blocks,shift_blocks);
 
   int fft_gs = 32;
   int fft_bs = subgrid_size/fft_gs;
-  dim3 dimBlock(fft_bs,fft_bs);
-  dim3 dimGrid(fft_gs,fft_gs);
+  dim3 dimGrid(fft_bs,fft_bs);
+  dim3 dimBlock(fft_gs,fft_gs);
 
   double3 u_rng;
   double3 v_rng;
   double3 w_rng;
-  
+  int last_wp = wp_min;
   // Lets get gridding!
-  for(int chunk = 0; chunk < total_chunks; ++chunk){
 
-    //int chunk_x = chunk % chunk_count_1d;
-    //int chunk_y = chunk / chunk_count_1d;
+  //cuDoubleComplex *subgrid, *subimg, **bin;
 
-    //int offset_x = chunk_x * subgrid_size;
-    //int offset_y = chunk_y * subgrid_siwze;
-    int last_wp = wp_min;
+  
+  for(int chunk = 0; chunk < 5; ++chunk){
+    std::cout << "Launching kernels for chunk: " << chunk << wp_min << wp_max <<"\n";
     for(int wp = wp_min; wp<=wp_max; ++wp){
-
+      std::cout << "WP: " << wp << "\n";
       double w_mid = (double)wp * wincrement;
       double w_min = ((double)wp - 0.5) * wincrement;
       double w_max = ((double)wp + 0.5) * wincrement;
@@ -906,21 +905,25 @@ __host__ cudaError_t wtowers_CUDA(const char* visfile, const char* wkernfile, in
 	(bins[chunk], vis_dat->bl_count, wkern_dat, subgrids[chunk], wkern_dat->size_x,
 	 subgrid_size, wkern_dat->w_step, theta,
 	 0, 0, 0, u_rng, v_rng, w_rng);
-      fft_shift_kernel <<< dimBlock, dimGrid, 0, streams[chunk] >>> (subgrids[chunk],subgrid_size);
+      fft_shift_kernel <<< dimGrid, dimBlock, 0, streams[chunk] >>> (subgrids[chunk],subgrid_size);
       cuFFTError_check(cufftExecZ2Z(fft_plan, subgrids[chunk], subgrids[chunk], CUFFT_INVERSE));
-      fft_shift_kernel <<< dimBlock, dimGrid, 0, streams[chunk] >>> (subgrids[chunk],subgrid_size);
+      fft_shift_kernel <<< dimGrid, dimBlock, 0, streams[chunk] >>> (subgrids[chunk],subgrid_size);
       fresnel_blas_mmul(handle, subgrids[chunk], wtransfer, subimgs[chunk], subgrid_size);
-
+      if(wp == wp_max-2){
+	std::cout << "Transfer to w-0 plane \n";
+	w0_transfer_kernel <<< dimGrid , dimBlock, 0, streams[chunk] >>> (subimgs[chunk], wtransfer, last_wp, subgrid_size);
+	  }
       last_wp = wp;
     }
-
-    w0_transfer_kernel <<< (subgrid_size*subgrid_size/64) , 64 >>>
-      (subimgs[chunk], wtransfer, last_wp, subgrid_size);
-    
+        
 
   }
+ //Check it actually ran...
+  cudaError_t err = cudaGetLastError();
+  std::cout << "Error: " << cudaGetErrorString(err) << "\n";
 
-  
+  cudaError_check(cudaDeviceSynchronize());
+ 
 
   cudaEventCreate(&stop);
   cudaEventRecord(stop,0);
@@ -928,7 +931,13 @@ __host__ cudaError_t wtowers_CUDA(const char* visfile, const char* wkernfile, in
   cudaEventSynchronize(stop);
   cudaEventElapsedTime(&elapsedTime,start,stop);
 
-  
+
+    //Check it actually ran...
+  //cudaError_t err = cudaGetLastError();
+  std::cout << "Error: " << cudaGetErrorString(err) << "\n";
+
+  cudaError_check(cudaDeviceReset());
+
   
   return error;
 
