@@ -678,7 +678,7 @@ __host__ inline void bin_flat_visibilities(struct flat_vis_data *vis_bins,
 
 
 //Bins visibilities in u/v for w-towers style subgrids.
-__host__ inline void bin_visibilities(struct vis_data *vis, struct bl_data ***bins,
+__host__ inline void bin_visibilities(struct vis_data *vis, struct vis_data *bins,
 				      int chunk_count, int wincrement, double theta,
 				      int grid_size, int chunk_size, int *w_min, int *w_max){
 
@@ -696,11 +696,11 @@ __host__ inline void bin_visibilities(struct vis_data *vis, struct bl_data ***bi
   int wp_min = (int) floor(vis_w_min / wincrement + 0.5);
   int wp_max = (int) floor(vis_w_max / wincrement + 0.5);
 
-  *w_min = wp_min;
+  *w_min = wp_min; // Report w-values back to calling function
   *w_max = wp_max;
 
   // Bin in uv
-  int bins_size = sizeof(void *) * chunk_count * chunk_count;
+  int bins_size = sizeof(struct vis_data) * chunk_count * chunk_count;
   //cudaError_check(cudaMallocManaged(&bins, bins_size, cudaMemAttachGlobal));
   //cudaError_check(cudaMemset(bins, 0, bins_size));
   
@@ -712,6 +712,8 @@ __host__ inline void bin_visibilities(struct vis_data *vis, struct bl_data ***bi
     
     // Determine bounds (could be more precise, future work...)
     struct bl_data *bl_data = &vis->bl[bl];
+    //cudaError_check(cudaMallocManaged(&bl_data, sizeof(struct bl_data), cudaMemAttachGlobal));
+    //bl_data = &vis->bl[bl];
     double u_min = lambda_min(bl_data, bl_data->u_min);
     double u_max = lambda_max(bl_data, bl_data->u_max);
     double v_min = lambda_min(bl_data, bl_data->v_min);
@@ -722,24 +724,30 @@ __host__ inline void bin_visibilities(struct vis_data *vis, struct bl_data ***bi
     int cx1 = (floor(u_max * theta + 0.5) + grid_size/2) / chunk_size;
     int cy0 = (floor(v_min * theta + 0.5) + grid_size/2) / chunk_size;
     int cy1 = (floor(v_max * theta + 0.5) + grid_size/2) / chunk_size;
-
+    
     int cy, cx;
     for (cy = cy0; cy <= cy1; cy++) {
       for (cx = cx0; cx <= cx1; cx++) {
 	// Lazy dynamically sized vector
-
 	
-	int bcount = ++bins_count[cy*chunk_count + cx];
+	int bcount = ++bins[cy*chunk_count + cx].bl_count;
 	int bcount_p = bcount - 1;
+	
+	struct bl_data *bl_data_old = bins[cy*chunk_count+cx].bl;
+	struct bl_data *temp;
+	
+	cudaError_check(cudaMallocManaged(&temp,
+					  sizeof(struct bl_data) * bcount));
+	cudaError_check(cudaMemcpy(temp, bl_data_old,
+				   sizeof(struct bl_data)*(bcount-1),
+				   cudaMemcpyDefault));
+	cudaError_check(cudaMemcpy(temp+bcount_p, bl_data,
+				   sizeof(struct bl_data),cudaMemcpyDefault));
 
-	// This is a horrible way of doing this.
-	// Why can't NVIDIA re-implement realloc?
-	struct bl_data **bl_data_old = bins[cy*chunk_count + cx];
-	cudaError_check(cudaMallocManaged(&bins[cy*chunk_count + cx],sizeof(void *) * bcount, cudaMemAttachGlobal));
-	cudaError_check(cudaMemcpy((void **)bins[cy*chunk_count + cx], (void **)bl_data_old,sizeof(void *) * bcount_p, cudaMemcpyDefault)); // Think the --bcount is wrong.
-	cudaError_check(cudaFree((void **)bl_data_old));
-	bins[cy*chunk_count + cx][bcount-1] = bl_data;
-
+	bins[cy*chunk_count + cx].bl = temp;
+	cudaError_check(cudaFree(bl_data_old));
+	//	cudaError_check(cudaFree(temp));
+						
       }
     }
   }
