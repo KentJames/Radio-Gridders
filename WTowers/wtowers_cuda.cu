@@ -382,9 +382,40 @@ inline void fresnel_blas_mmul(cublasHandle_t &handle,
 
 }
 
-__global__ void test_kernel(int one, int two){
+__global__ void add_subs2main_kernel(cuDoubleComplex *main, cuDoubleComplex *subs,
+				     int main_size, int sub_size, int sub_margin,
+				     int sub_count, int chunk_size){
 
-  int x = blockIdx.x * blockDim.x + threadIdx.x;
+
+  int x = blockDim.x * blockIdx.x + threadIdx.x;
+  int y = blockDim.y * blockIdx.y + threadIdx.y;
+  int ts = sub_count * sub_size * sub_size;
+  for(int i = 0; i < sub_count; ++i){
+
+    int cx = i % sub_count;
+    int cy = i / sub_count;
+    
+    int x_min = chunk_size*cx - sub_size/2;
+    int y_min = chunk_size*cy - sub_size/2;
+
+    int x0 = x_min - sub_margin/2, x1 = x0+sub_size;
+    int y0 = y_min - sub_margin/2, y1 = y0+sub_size;
+    if (x0 < -main_size/2) { x0 = -main_size/2;}
+    if (y0 < -main_size/2) { y0 = -main_size/2;}
+    if (x1 > main_size/2) { x1 = main_size/2; }
+    if (y1 > main_size/2) { y1 = main_size/2; }
+
+    cuDoubleComplex *sub_p = main + (main_size+1)*(main_size/2);
+    int sg_norm = sub_size*sub_size;
+
+    if(y>= y0 && y <y1 && x >= x0 && x < x1){
+      sub_p[y*main_size + x] =
+
+	cuCadd(sub_p[y*main_size+x],
+	       cuCdiv((subs+i*(sub_size*sub_size))[(x-x_min+sub_margin/2)
+						   + (y-y_min+sub_margin/2) *sub_size] , make_cuDoubleComplex(sg_norm,sg_norm)));
+	       }
+  }
 
 }
 
@@ -761,8 +792,8 @@ __host__ cudaError_t wtowers_CUDA(const char* visfile, const char* wkernfile, in
 
   //API Variables
   cudaError_t error = (cudaError_t)0;
-  cublasStatus_t stat;
-  cublasHandle_t handle;
+  
+ 
   //For Benchmarking.
   cudaEvent_t start, stop;
   float elapsedTime;
@@ -834,15 +865,6 @@ __host__ cudaError_t wtowers_CUDA(const char* visfile, const char* wkernfile, in
 
   }
 
-  //Initialise cublas handle. We use cublas to multiply our fresnel phase screen.
-
-  stat = cublasCreate(&handle);
-  if (stat != CUBLAS_STATUS_SUCCESS) {
-    std::cout<< "cuBLAS initialisation failed. \n";
-    error = (cudaError_t)1;
-    return error;
-  }
-
   //Allocate subgrids/subimgs on the GPU
   
   assert( grid_size % subgrid_size == 0);
@@ -860,19 +882,45 @@ __host__ cudaError_t wtowers_CUDA(const char* visfile, const char* wkernfile, in
   cudaError_check(cudaMallocManaged((void **)&subimgs,
 				    total_chunks * subgrid_mem_size * sizeof(cuDoubleComplex),
 				    cudaMemAttachGlobal));
+
   
   //Create streams for each tower and allocate our chunks in unified memory.
   //Also set our FFT plans while we are here.
+  
+  //Initialise cublas handle. We use cublas to multiply our fresnel phase screen.
+
   cudaStream_t *streams = (cudaStream_t *) malloc(total_chunks * sizeof(cudaStream_t));
   cufftHandle *subgrid_plans = (cufftHandle *) malloc(total_chunks * sizeof(cufftHandle));
+  cublasHandle_t *handle = (cublasHandle_t *) malloc(sizeof(cublasHandle_t)*total_chunks);
+  cublasStatus_t stat;
+
   for(int i = 0; i < total_chunks; ++i){
 
-    cudaStreamCreate(&streams[i]);
+    //Create stream.
+    cudaError_check(cudaStreamCreate(&streams[i]));
+
+    //Assign FFT Plan to each stream
     cuFFTError_check(cufftPlan2d(&subgrid_plans[i],subgrid_size,subgrid_size,CUFFT_Z2Z));
     cuFFTError_check(cufftSetStream(subgrid_plans[i], streams[i]));
+
+    //Assign cuBLAS handle to each stream.
+    stat = cublasCreate(&handle[i]);
+    cublasSetStream(handle[i], streams[i]);
+    if (stat != CUBLAS_STATUS_SUCCESS) {
+      std::cout << "cuBLAS initialisation failed. \n";
+      error = (cudaError_t)1;
+      return error;
+
+    }
+    
+    
+    
   }
   cufftHandle grid_plan;
   cuFFTError_check(cufftPlan2d(&grid_plan, grid_size, grid_size, CUFFT_Z2Z));
+
+
+
 
   
   //Allocate our bins and Bin in U/V
@@ -919,7 +967,7 @@ __host__ cudaError_t wtowers_CUDA(const char* visfile, const char* wkernfile, in
       fft_shift_kernel <<< dimGrid, dimBlock, 0, streams[chunk] >>> (subgrids+subgrid_offset,subgrid_size);
       cuFFTError_check(cufftExecZ2Z(subgrid_plans[chunk], subgrids+subgrid_offset, subgrids+subgrid_offset, CUFFT_INVERSE));
       fft_shift_kernel <<< dimGrid, dimBlock, 0, streams[chunk] >>> (subgrids+subgrid_offset,subgrid_size);
-      fresnel_blas_mmul(handle, subgrids+subgrid_offset, wtransfer, subimgs+subgrid_offset, subgrid_size);
+      fresnel_blas_mmul(handle[chunk], subgrids+subgrid_offset, wtransfer, subimgs+subgrid_offset, subgrid_size);
     //if(wp == wp_max-2){
     //	std::cout << "Transfer to w-0 plane \n";
 
@@ -932,30 +980,25 @@ __host__ cudaError_t wtowers_CUDA(const char* visfile, const char* wkernfile, in
 
   }
 
-  //Now add all our subgrids to the main grid...
-
-
-
-    
-  //Check it actually ran...
-  cudaError_t err = cudaGetLastError();
-  std::cout << "Error: " << cudaGetErrorString(err) << "\n";
-  
-  cudaError_check(cudaDeviceSynchronize());
-  
-  
+  cudaError_check(cudaDeviceSynchronize());  
   cudaEventCreate(&stop);
   cudaEventRecord(stop,0);
-  
   cudaEventSynchronize(stop);
   cudaEventElapsedTime(&elapsedTime,start,stop);
   std::cout << "Scatter Gridder Elapsed Time: " << elapsedTime/1000.0 << " seconds\n";
 
+  int fft_gs_m = 1024;
+  int fft_bs_m = grid_size/fft_gs_m;
 
-  fft_shift_kernel <<< dimGrid, dimBlock >>> (grid_dev, grid_size);
+  dim3 dimBlock_main(fft_bs_m,fft_bs_m);
+  dim3 dimGrid_main(fft_gs_m, fft_gs_m);
+  
+  add_subs2main_kernel <<< dimGrid, dimBlock_main >>> (grid_dev, subimgs, grid_size, subgrid_size,
+  					  subgrid_margin, total_chunks, chunk_size);
+  fft_shift_kernel <<< dimGrid_main, dimBlock_main >>> (grid_dev, grid_size);
   cuFFTError_check(cufftExecZ2Z(grid_plan, grid_dev, grid_dev, CUFFT_INVERSE));
 
-  fft_shift_kernel <<< dimBlock, dimGrid >>> (grid_dev, grid_size);
+  fft_shift_kernel <<< dimGrid_main, dimBlock_main >>> (grid_dev, grid_size);
   //Transfer back to host.
   cudaError_check(cudaMemcpy(grid_host, grid_dev, total_gs * sizeof(cuDoubleComplex),
 			     cudaMemcpyDeviceToHost));
