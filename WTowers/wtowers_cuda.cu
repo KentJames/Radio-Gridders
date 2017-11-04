@@ -406,45 +406,25 @@ __global__ void add_subs2main_kernel(cuDoubleComplex *main, cuDoubleComplex *sub
   int x = blockDim.x * blockIdx.x + threadIdx.x;
   int y = blockDim.y * blockIdx.y + threadIdx.y;
   //  int ts = sub_count * sub_count  * sub_size * sub_size;
-  for(int i = 0; i < (sub_count*sub_count); ++i){
-
-    int cx = i % sub_count;
-    int cy = i / sub_count;
+  for(int cy = 0; cy < sub_count; ++cy){
+    for(int cx = 0; cx < sub_count; ++cx){
+      
+      int x_min = sub_size*cx; //- sub_size/2;
+      int y_min = sub_size*cy; //- sub_size/2;
+      
+      int x_max = sub_size*(cx+1);
+      int y_max = sub_size*(cy+1);
     
-    int x_min = sub_size*cx; //- sub_size/2;
-    int y_min = sub_size*cy; //- sub_size/2;
-
-    int x_max = sub_size*(cx+1);
-    int y_max = sub_size*(cy+1);
-    /*
-    int x0 = x_min - sub_margin/2, x1 = x0+sub_size;
-    int y0 = y_min - sub_margin/2, y1 = y0+sub_size;
-    if (x0 < -main_size/2) { x0 = -main_size/2;}
-    if (y0 < -main_size/2) { y0 = -main_size/2;}
-    if (x1 > main_size/2) { x1 = main_size/2; }
-    if (y1 > main_size/2) { y1 = main_size/2; }
-
-    //cuDoubleComplex *sub_p = main + (main_size+1)*(main_size/2);
-    int sg_norm = sub_size*sub_size;
-
-    if(y>= y0 && y <y1 && x >= x0 && x < x1){
-      main[y*main_size + x] = cuCadd(main[y*main_size + x],make_cuDoubleComplex(1.5,1.5));
-
-	//	cuCadd(sub_p[y*main_size+x],
-	//     (subs+i*(sub_size*sub_size))[(x-x_min+sub_margin/2)
-	//				    + (y-y_min+sub_margin/2) *sub_size]);
-	       }
-    */
-    if(y>= y_min && y < y_max && x>= x_min && x < x_max){
-
-      int y_s = y - y_min;
-      int x_s = x - x_min;
-      main[y*main_size + x] = cuCadd(main[y*main_size+x],
-				     //make_cuDoubleComplex(1.5,1.5));
-				     (subs+(i*sub_size*sub_size))[y_s*main_size + x_s]);
+      if(y>= y_min && y < y_max && x>= x_min && x < x_max){
+      
+	int y_s = y - y_min;
+	int x_s = x - x_min;
+	main[y*main_size + x] = cuCadd(main[y*main_size+x],
+				       (subs+(cx*cy*sub_size*sub_size))[y_s*sub_size + x_s]);
       }
+    }
   }
-
+  
 }
 
 __global__ void w0_transfer_kernel(cuDoubleComplex *grid, cuDoubleComplex *base, int exp, int size){
