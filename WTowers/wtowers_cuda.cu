@@ -15,6 +15,9 @@
 //Our Include
 #include "wtowers_common.h"
 
+//cuBLAS uses FORTRAN style indexing.
+#define IDX2F(i, j, ld) ((((j)-1)*(ld))+((i)-1))
+
 
 /*****************************
       CUDA Error Checker
@@ -259,7 +262,6 @@ __device__ inline void scatter_grid_point_flat(
 //Assumes pre-binned (in u/v) data
 __device__ inline void scatter_grid_point(
 					  struct vis_data *bin, // Our bins of UV Data
-					  int bl_count, // Number of baselines.
 					  cuDoubleComplex *uvgrid, // Our main UV Grid
 					  struct w_kernel_data *wkern, //Our W-Kernel
 					  int max_supp, // Max size of W-Kernel
@@ -368,19 +370,33 @@ inline void fresnel_blas_mmul(cublasHandle_t &handle,
 		       int n){
 
   cuDoubleComplex alf = make_cuDoubleComplex(1.0,1.0);
-  cuDoubleComplex bet = make_cuDoubleComplex(0.0,0.0);
+  cuDoubleComplex bet = make_cuDoubleComplex(1.0,1.0);
 
   cuDoubleComplex *alpha = &alf;
   cuDoubleComplex *beta = &bet;
 
   //Complex->Complex cublas matrix multiplication.
   cublasZgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, n, n, n, alpha,
-	      subimg, n, fresnel, n, beta, subgrid, n);
+	      fresnel, n, subgrid, n, beta, subimg, n);
 
-  cublasZaxpy(handle, n*n, beta, subgrid, 1, subimg, 1);
+  //  cublasZaxpy(handle, n*n, beta, subgrid, 1, subimg, 1);
   
 
 }
+
+
+//Debugging Kernel for add_subs2main_kernel
+__global__ void set_subs_value(cuDoubleComplex *subs,
+			       int sub_size,
+			       int sub_count,
+			       cuDoubleComplex value){
+
+  int x = blockDim.x * blockIdx.x + threadIdx.x;
+
+  subs[x] = value;
+
+}
+  
 
 __global__ void add_subs2main_kernel(cuDoubleComplex *main, cuDoubleComplex *subs,
 				     int main_size, int sub_size, int sub_margin,
@@ -389,15 +405,18 @@ __global__ void add_subs2main_kernel(cuDoubleComplex *main, cuDoubleComplex *sub
 
   int x = blockDim.x * blockIdx.x + threadIdx.x;
   int y = blockDim.y * blockIdx.y + threadIdx.y;
-  int ts = sub_count * sub_size * sub_size;
-  for(int i = 0; i < sub_count; ++i){
+  //  int ts = sub_count * sub_count  * sub_size * sub_size;
+  for(int i = 0; i < (sub_count*sub_count); ++i){
 
     int cx = i % sub_count;
     int cy = i / sub_count;
     
-    int x_min = chunk_size*cx - sub_size/2;
-    int y_min = chunk_size*cy - sub_size/2;
+    int x_min = sub_size*cx; //- sub_size/2;
+    int y_min = sub_size*cy; //- sub_size/2;
 
+    int x_max = sub_size*(cx+1);
+    int y_max = sub_size*(cy+1);
+    /*
     int x0 = x_min - sub_margin/2, x1 = x0+sub_size;
     int y0 = y_min - sub_margin/2, y1 = y0+sub_size;
     if (x0 < -main_size/2) { x0 = -main_size/2;}
@@ -405,16 +424,25 @@ __global__ void add_subs2main_kernel(cuDoubleComplex *main, cuDoubleComplex *sub
     if (x1 > main_size/2) { x1 = main_size/2; }
     if (y1 > main_size/2) { y1 = main_size/2; }
 
-    cuDoubleComplex *sub_p = main + (main_size+1)*(main_size/2);
+    //cuDoubleComplex *sub_p = main + (main_size+1)*(main_size/2);
     int sg_norm = sub_size*sub_size;
 
     if(y>= y0 && y <y1 && x >= x0 && x < x1){
-      sub_p[y*main_size + x] =
+      main[y*main_size + x] = cuCadd(main[y*main_size + x],make_cuDoubleComplex(1.5,1.5));
 
-	cuCadd(sub_p[y*main_size+x],
-	       cuCdiv((subs+i*(sub_size*sub_size))[(x-x_min+sub_margin/2)
-						   + (y-y_min+sub_margin/2) *sub_size] , make_cuDoubleComplex(sg_norm,sg_norm)));
+	//	cuCadd(sub_p[y*main_size+x],
+	//     (subs+i*(sub_size*sub_size))[(x-x_min+sub_margin/2)
+	//				    + (y-y_min+sub_margin/2) *sub_size]);
 	       }
+    */
+    if(y>= y_min && y < y_max && x>= x_min && x < x_max){
+
+      int y_s = y - y_min;
+      int x_s = x - x_min;
+      main[y*main_size + x] = cuCadd(main[y*main_size+x],
+				     //make_cuDoubleComplex(1.5,1.5));
+				     (subs+(i*sub_size*sub_size))[y_s*main_size + x_s]);
+      }
   }
 
 }
@@ -481,7 +509,6 @@ __global__ void scatter_grid_kernel_flat(
 
 //This is our Romein-style scatter gridder. Works on hierarchical visibility data (bl->time->freq).
 __global__ void scatter_grid_kernel(struct vis_data *bin, // Baseline bin
-				    int bl_count, // No. of baselines
 				    struct w_kernel_data *wkern, // No. of wkernels
 				    cuDoubleComplex *uvgrid, //Our UV-Grid
 				    int max_support, //  Convolution size
@@ -501,7 +528,7 @@ __global__ void scatter_grid_kernel(struct vis_data *bin, // Baseline bin
     int myU = i % max_support;
     int myV = i / max_support;
 
-    scatter_grid_point(bin, bl_count, uvgrid, wkern, max_support, myU, myV, wstep,
+    scatter_grid_point(bin, uvgrid, wkern, max_support, myU, myV, wstep,
 		       subgrid_size, subgrid_size, theta, offset_u, offset_v, offset_w,
 		       u_rng, v_rng, w_rng);
 		       
@@ -840,11 +867,12 @@ __host__ cudaError_t wtowers_CUDA(const char* visfile, const char* wkernfile, in
   cudaError_check(cudaMalloc((void **)&grid_dev, total_gs * sizeof(cuDoubleComplex)));
   cudaError_check(cudaMallocHost((void **)&grid_host, total_gs * sizeof(cuDoubleComplex)));
 
-
+  cudaError_check(cudaMemset(grid_dev, 1.87, total_gs * sizeof(cuDoubleComplex)));
 
 
 
   //Create the fresnel interference pattern for the W-Dimension
+  //Can make this a kernel.
   //See Tim Cornwells paper on W-Projection for more information.
   int subgrid_mem_size = sizeof(cuDoubleComplex) * subgrid_size * subgrid_size;  
   cuDoubleComplex *wtransfer;
@@ -859,11 +887,11 @@ __host__ cudaError_t wtowers_CUDA(const char* visfile, const char* wkernfile, in
       double m = theta * (double)(y - subgrid_size / 2) / subgrid_size;
       double ph = wincrement * (1 - sqrt(1 - l*l - m*m));
 
-      cuDoubleComplex wtrans = make_cuDoubleComplex(0, 2 * M_PI * ph);
+      cuDoubleComplex wtrans = make_cuDoubleComplex(2* M_PI * ph, 2 * M_PI * ph);
       wtransfer[y * subgrid_size + x] = cu_cexp_d(wtrans);
     }
-
   }
+  fft_shift(wtransfer, subgrid_size);
 
   //Allocate subgrids/subimgs on the GPU
   
@@ -883,10 +911,9 @@ __host__ cudaError_t wtowers_CUDA(const char* visfile, const char* wkernfile, in
 				    total_chunks * subgrid_mem_size * sizeof(cuDoubleComplex),
 				    cudaMemAttachGlobal));
 
-  
+  //  cudaError_check(cudaMemset(subimgs, 1.2, total_chunks * subgrid_mem_size * sizeof(cuDoubleComplex)));
   //Create streams for each tower and allocate our chunks in unified memory.
   //Also set our FFT plans while we are here.
-  
   //Initialise cublas handle. We use cublas to multiply our fresnel phase screen.
 
   cudaStream_t *streams = (cudaStream_t *) malloc(total_chunks * sizeof(cudaStream_t));
@@ -910,19 +937,13 @@ __host__ cudaError_t wtowers_CUDA(const char* visfile, const char* wkernfile, in
       std::cout << "cuBLAS initialisation failed. \n";
       error = (cudaError_t)1;
       return error;
-
     }
-    
-    
-    
   }
+
+  //Our FFT plan for our final transform.
   cufftHandle grid_plan;
   cuFFTError_check(cufftPlan2d(&grid_plan, grid_size, grid_size, CUFFT_Z2Z));
 
-
-
-
-  
   //Allocate our bins and Bin in U/V
   struct vis_data *bins;
 
@@ -938,6 +959,14 @@ __host__ cudaError_t wtowers_CUDA(const char* visfile, const char* wkernfile, in
   dim3 dimGrid(fft_bs,fft_bs);
   dim3 dimBlock(fft_gs,fft_gs);
 
+  
+  // int fft_gs_m = 1024;
+  //int fft_bs_m = (grid_size*grid_size)/fft_gs_m;
+
+  dim3 dimBlock_main(16,16);
+  dim3 dimGrid_main(128,128);
+
+
   double3 u_rng;
   double3 v_rng;
   double3 w_rng;
@@ -949,6 +978,22 @@ __host__ cudaError_t wtowers_CUDA(const char* visfile, const char* wkernfile, in
     
   for(int chunk =0; chunk < total_chunks; ++chunk){
     //std::cout << "Launching kernels for chunk: " << chunk << wp_min << wp_max <<"\n";
+    int cx = chunk % chunk_count_1d;
+    int cy = floor(chunk / chunk_count_1d);
+
+    int x_min = cx * chunk_size - grid_size/2;
+    int y_min = cy * chunk_size - grid_size/2;
+
+    double u_min = ((double)x_min - 0.5) / theta;
+    double v_min = ((double)y_min - 0.5) / theta;
+    double u_max = u_min + chunk_size / theta;
+    double v_max = v_min + chunk_size / theta;
+
+    double u_mid = (double)(x_min + chunk_size / 2) / theta;
+    double v_mid = (double)(y_min + chunk_size / 2) / theta;
+
+    u_rng = {u_min, u_max, u_mid};
+    v_rng = {v_min, v_max, v_mid};
 
     int subgrid_offset = chunk * subgrid_size * subgrid_size;
     
@@ -961,44 +1006,36 @@ __host__ cudaError_t wtowers_CUDA(const char* visfile, const char* wkernfile, in
       w_rng = {w_min, w_max, w_mid};
 
       scatter_grid_kernel <<< 1, 64, 0, streams[chunk] >>>
-	(bins+chunk, 4, wkern_dat, subgrids+subgrid_offset, wkern_size,
+	(bins+chunk, wkern_dat, subgrids+subgrid_offset, wkern_size,
 	 subgrid_size, wkern_wstep, theta,
 	 0, 0, 0, u_rng, v_rng, w_rng);
       fft_shift_kernel <<< dimGrid, dimBlock, 0, streams[chunk] >>> (subgrids+subgrid_offset,subgrid_size);
       cuFFTError_check(cufftExecZ2Z(subgrid_plans[chunk], subgrids+subgrid_offset, subgrids+subgrid_offset, CUFFT_INVERSE));
       fft_shift_kernel <<< dimGrid, dimBlock, 0, streams[chunk] >>> (subgrids+subgrid_offset,subgrid_size);
-      fresnel_blas_mmul(handle[chunk], subgrids+subgrid_offset, wtransfer, subimgs+subgrid_offset, subgrid_size);
-    //if(wp == wp_max-2){
-    //	std::cout << "Transfer to w-0 plane \n";
-
-  
+      fresnel_blas_mmul(handle[chunk], subgrids+subgrid_offset, wtransfer, subimgs+subgrid_offset, subgrid_size);  
       last_wp = wp;
     }
         
     w0_transfer_kernel <<< dimGrid , dimBlock, 0, streams[chunk] >>> (subimgs+subgrid_offset, wtransfer, last_wp, subgrid_size);
-    cuFFTError_check(cufftExecZ2Z(subgrid_plans[chunk], subimgs+subgrid_offset, subimgs+subgrid_offset, CUFFT_FORWARD)); //This can be sped up with a batched FFT. Future optimisation...
+    cuFFTError_check(cufftExecZ2Z(subgrid_plans[chunk], subimgs+subgrid_offset, subimgs+subgrid_offset, CUFFT_FORWARD)); //This can be sped up with a batched strided FFT. Future optimisation...
 
   }
+  cudaError_check(cudaDeviceSynchronize());
+  //set_subs_value <<< 4096 , 1024 >>> (subgrids, subgrid_size,chunk_count_1d, make_cuDoubleComplex(3.4,2.3));
+  add_subs2main_kernel <<< dimGrid_main, dimBlock_main >>> (grid_dev, subimgs, grid_size, subgrid_size,
+  					  subgrid_margin, chunk_count_1d, chunk_size);
+  fft_shift_kernel <<< dimGrid_main, dimBlock_main >>> (grid_dev, grid_size);
+  cuFFTError_check(cufftExecZ2Z(grid_plan, grid_dev, grid_dev, CUFFT_INVERSE));
 
-  cudaError_check(cudaDeviceSynchronize());  
+  fft_shift_kernel <<< dimGrid_main, dimBlock_main >>> (grid_dev, grid_size);
+  
+
   cudaEventCreate(&stop);
   cudaEventRecord(stop,0);
   cudaEventSynchronize(stop);
   cudaEventElapsedTime(&elapsedTime,start,stop);
   std::cout << "Scatter Gridder Elapsed Time: " << elapsedTime/1000.0 << " seconds\n";
-
-  int fft_gs_m = 1024;
-  int fft_bs_m = grid_size/fft_gs_m;
-
-  dim3 dimBlock_main(fft_bs_m,fft_bs_m);
-  dim3 dimGrid_main(fft_gs_m, fft_gs_m);
   
-  add_subs2main_kernel <<< dimGrid, dimBlock_main >>> (grid_dev, subimgs, grid_size, subgrid_size,
-  					  subgrid_margin, total_chunks, chunk_size);
-  fft_shift_kernel <<< dimGrid_main, dimBlock_main >>> (grid_dev, grid_size);
-  cuFFTError_check(cufftExecZ2Z(grid_plan, grid_dev, grid_dev, CUFFT_INVERSE));
-
-  fft_shift_kernel <<< dimGrid_main, dimBlock_main >>> (grid_dev, grid_size);
   //Transfer back to host.
   cudaError_check(cudaMemcpy(grid_host, grid_dev, total_gs * sizeof(cuDoubleComplex),
 			     cudaMemcpyDeviceToHost));
@@ -1022,7 +1059,7 @@ __host__ cudaError_t wtowers_CUDA(const char* visfile, const char* wkernfile, in
   image_f.close();
   
   //Check it actually ran...
-  //cudaError_t err = cudaGetLastError();
+  cudaError_t err = cudaGetLastError();
   std::cout << "Error: " << cudaGetErrorString(err) << "\n";
   
   cudaError_check(cudaDeviceReset());
@@ -1083,8 +1120,6 @@ __host__ cudaError_t wprojection_CUDA(const char* visfile, const char* wkernfile
 
   weight((unsigned int *)grid_host, grid_size, theta, vis_dat);
     
-  struct bl_data **bl_d = &vis_dat->bl;
-  
   std::cout << "Inititalise scatter gridder... \n";
 
   cudaEventCreate(&start);
@@ -1097,7 +1132,7 @@ __host__ cudaError_t wprojection_CUDA(const char* visfile, const char* wkernfile
   //scatter_grid_kernel_flat <<< 16, 32 >>> (flat_vis_dat, wkern_dat, grid_dev, wkern_dat->size_x,
   //					  grid_size, grid_size, wkern_dat->w_step, theta, 0, 0, 0);
   //
-  scatter_grid_kernel <<< 16 , 32 >>> (vis_dat,vis_dat->bl_count,wkern_dat, grid_dev, wkern_dat->size_x,
+  scatter_grid_kernel <<< 16 , 32 >>> (vis_dat,wkern_dat, grid_dev, wkern_dat->size_x,
 				       grid_size,wkern_dat->w_step, theta, 0, 0, 0, u_rng, v_rng, w_rng);
   cudaEventCreate(&stop);
   cudaEventRecord(stop, 0);
