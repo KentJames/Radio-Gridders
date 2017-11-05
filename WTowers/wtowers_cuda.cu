@@ -420,7 +420,9 @@ __global__ void add_subs2main_kernel(cuDoubleComplex *main, cuDoubleComplex *sub
 	int y_s = y - y_min;
 	int x_s = x - x_min;
 	main[y*main_size + x] = cuCadd(main[y*main_size+x],
-				       (subs+(cx*cy*sub_size*sub_size))[y_s*sub_size + x_s]);
+				       (subs+(((cy*sub_count)+cx)*sub_size*sub_size))
+				       [y_s*sub_size + x_s]);
+	//Not sure if this is good style. 1) Calculate offset. 2) Dereference via array notation
       }
     }
   }
