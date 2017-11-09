@@ -214,10 +214,21 @@ int main (int argc, char **argv) {
   }
   else {
     //Call our W-Towers wrapper.
-    std::cout << "W-Towers Gridder... \n";
-    wtowers_CUDA(visfile_c, wkernfile_c, grid_size, theta, lambda, bl_min, bl_max,
-	       subgrid_size, subgrid_margin, winc);
+    if(checkCmdLineFlag(argc, (const char **) argv, "flat")){
 
+      std::cout << "W-Towers Gridder(on flattened dataset) ... \n";
+      std::cout << "BL Max: " << bl_max << " BL Min: " << bl_min << " \n";
+      wtowers_CUDA_flat(visfile_c, wkernfile_c, grid_size, theta, lambda, bl_min, bl_max,
+			subgrid_size, subgrid_margin, winc);
+
+    } else {
+      
+      std::cout << "W-Towers Gridder... \n";
+      std::cout << "BL Max: " << bl_max << " BL Min: " << bl_min << " \n";
+      wtowers_CUDA(visfile_c, wkernfile_c, grid_size, theta, lambda, bl_min, bl_max,
+		   subgrid_size, subgrid_margin, winc);
+
+    }
   }
   
   
