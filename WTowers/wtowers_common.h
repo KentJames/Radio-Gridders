@@ -1,4 +1,5 @@
 #include "hdf5_h.h"
+#include "radio.cuh"
 
 #ifndef WTOWER_H
 #define WTOWER_H
