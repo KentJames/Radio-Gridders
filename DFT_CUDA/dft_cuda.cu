@@ -10,7 +10,7 @@
 #include "cuda_runtime_api.h"
 
 //Our include
-#include "dft_common.h"
+#include "dft_common.cuh"
 
 
 #define cudaError_check(ans) { gpuAssert((ans), __FILE__, __LINE__); }

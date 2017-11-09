@@ -12,7 +12,7 @@
 #include "cuda_runtime_api.h"
 
 //Our Include
-#include "wtowers_common.h"
+#include "wtowers_common.cuh"
 
 
 /*****************************
