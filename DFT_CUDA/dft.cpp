@@ -37,6 +37,7 @@ void showHelp(){
   std::cout<<"\t-vis                 Input Visibilities\n";
   std::cout<<"\t-blocks              Number of CUDA Blocks\n";
   std::cout<<"\t-threadblock         Number of CUDA Threads per Block\n";
+  std::cout<<"\t-device              Device to Execute On (Int)\n";
   std::cout<<"\n\n\n";
 }
 
@@ -66,6 +67,7 @@ int main (int argc, char **argv) {
 
   }
 
+  
 
   init_dtype_cpx();
   
@@ -79,7 +81,8 @@ int main (int argc, char **argv) {
   double bl_min = 0;
   double bl_max = 1.7976931348623158e+308 ;
 
-  int cuda_blocks, cuda_threads_block;
+  int dev_no = 0, cuda_blocks, cuda_threads_block;
+
   
   
   // Parameters
@@ -89,6 +92,11 @@ int main (int argc, char **argv) {
     return 0;
   }
 
+  if (checkCmdLineFlag(argc, (const char **)argv, "device")){
+    dev_no = getCmdLineArgumentInt(argc, (const char **) argv, "device");
+  } else { dev_no = 0; }
+
+  cudaSetDevice(dev_no);
   
   if (checkCmdLineFlag(argc, (const char **)argv, "vis") == 0){
 

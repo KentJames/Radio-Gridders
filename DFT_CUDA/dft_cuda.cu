@@ -39,7 +39,7 @@ __device__ cuDoubleComplex calculate_dft_sum(struct vis_data *vis, double l, dou
 
 
 	//TODO: Put pointer cast in instead like in WTowers. Haven't got time to test now :(
-	//This step is quite convoluted due to mixing C and CUDA compelx datatypes..
+	//This step is quite convoluted due to mixing C and CUDA complex datatypes..
 	cuDoubleComplex visibility;
 	double __complex__ visibility_c = vis->bl[bl].vis[time*vis->bl[bl].freq_count + freq];
 	memcpy(&visibility, &visibility_c, sizeof(double __complex__));
