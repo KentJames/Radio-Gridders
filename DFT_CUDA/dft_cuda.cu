@@ -37,12 +37,8 @@ __device__ cuDoubleComplex calculate_dft_sum(struct vis_data *vis, double l, dou
 
       for (int freq = 0; freq < vis->bl[bl].freq_count; ++freq){
 
-
-	//TODO: Put pointer cast in instead like in WTowers. Haven't got time to test now :(
-	//This step is quite convoluted due to mixing C and CUDA complex datatypes..
-	cuDoubleComplex visibility;
-	double __complex__ visibility_c = vis->bl[bl].vis[time*vis->bl[bl].freq_count + freq];
-	memcpy(&visibility, &visibility_c, sizeof(double __complex__));
+        //Pointer cast because of mixing cuDoubleComplex and double _Complex.
+	cuDoubleComplex visibility = *(cuDoubleComplex*)&vis->bl[bl].vis[time*vis->bl[bl].freq_count + freq];
 	
 
 	//nvcc should optimise this section.
