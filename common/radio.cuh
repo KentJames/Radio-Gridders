@@ -295,6 +295,50 @@ __host__ inline void make_hermitian(cuDoubleComplex *uvgrid, int grid_size){
 
 }
 
+__host__ inline void bin_flat_uvw_bins(struct flat_vis_uvw_bin *vis_bins,
+				  struct flat_vis_data *vis,
+				  int chunk_count,
+				  int wincrement,
+				  double theta,
+				  int grid_size,
+				  int chunk_size,
+				  int *w_min,
+				  int *w_max){
+
+  //1) Bin in U-V in first instance
+  int total_bins = chunk_count * chunk_count;
+  struct flat_vis_uvw_bin *uv_bins = (struct flat_vis_uvw_bin *)malloc(sizeof(struct flat_vis_uvw_bin) * total_bins);
+
+  //1a) Pre-compute amount of memory for each u-v bin.
+  int *bin_chunk_count = (int *)malloc(total_bins * sizeof(int));
+  for(int vi = 0; vi < vis->number_of_vis; ++vi){
+    
+    double u = vis->u[vi];
+    double v = vis->v[vi];
+
+    int cx = (floor(u * theta + 0.5) + grid_size/2) / chunk_size;
+    int cy = (floor(v * theta + 0.5) + grid_size/2) / chunk_size;
+
+    ++bin_chunk_count[cy * chunk_count + cx];
+  }
+
+  //1b) Allocate memory
+
+  for(int cyi = 0; cyi< total_bins; ++cyi){
+    for(int cxi = 0; cxi< total_bins; ++cxi){
+      uv_bins[cyi * chunk_count + cxi].u = (double *)malloc(bin_chunk_count[cyi * chunk_count + cxi] * sizeof(double));
+      uv_bins[cyi * chunk_count + cxi].v = (double *)malloc(bin_chunk_count[cyi * chunk_count + cxi] * sizeof(double));
+      uv_bins[cyi * chunk_count + cxi].w = (double *)malloc(bin_chunk_count[cyi * chunk_count + cxi] * sizeof(double));
+      uv_bins[cyi * chunk_count + cxi].vis = (double _Complex *)malloc(bin_chunk_count[cyi * chunk_count + cxi] * sizeof(double _Complex));
+      }
+  }
+
+  //1c) Actually bin in memory.
+  // We can re-use our bin chunks counts.
+  memset(bin_chunk_count,0,total_bins * sizeof(int));
+
+}
+
 //Splits our visibilities up into contiguous bins, for each block to apply.
 __host__ inline void bin_flat_visibilities(struct flat_vis_data *vis_bins,
 					   struct flat_vis_data *vis,

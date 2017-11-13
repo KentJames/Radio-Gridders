@@ -18,6 +18,14 @@ extern "C" {
   //Resolution varies depending on block/thread sizing.
   static const double resolution = 1.0;
 
+  struct flat_vis_uvw_bin
+  {
+    double *u, *v, *w;
+    double _Complex *vis;
+    double u_mid, v_mid, w_mid;
+    int number_of_vis;
+  };
+  
 
   // Potentially faster for Romein gridder, not too sure yet. Pure SoA vs AoS below.
   struct flat_vis_data
