@@ -325,9 +325,7 @@ __global__ void fft_shift_kernel(cuDoubleComplex *grid, int size){
     cuDoubleComplex temp = grid[ix0];
     grid[ix0] = grid[ix1];
     grid[ix1] = temp;
-
   }
-
 }
 
 //This is our Romein-style scatter gridder. Works on flat visibility data.
