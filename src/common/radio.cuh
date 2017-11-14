@@ -296,7 +296,7 @@ __host__ inline void make_hermitian(cuDoubleComplex *uvgrid, int grid_size){
 }
 
 //W-Towers binning. Splits visibilities according to their respective chunk.
-__host__ inline void bin_flat_uv_bins(struct flat_vis_uvw_bin *vis_bins,
+__host__ inline void bin_flat_uv_bins(struct flat_vis_data *vis_bins,
 				  struct flat_vis_data *vis,
 				  int chunk_count,
 				  int wincrement,
@@ -311,6 +311,7 @@ __host__ inline void bin_flat_uv_bins(struct flat_vis_uvw_bin *vis_bins,
 
   //1a) Pre-compute amount of memory for each u-v bin.
   int *bin_chunk_count = (int *)malloc(total_bins * sizeof(int));
+  memset(bin_chunk_count, 0, total_bins * sizeof(int));
   for(int vi = 0; vi < vis->number_of_vis; ++vi){
     
     double u = vis->u[vi];
@@ -321,16 +322,16 @@ __host__ inline void bin_flat_uv_bins(struct flat_vis_uvw_bin *vis_bins,
 
     ++bin_chunk_count[cy * chunk_count + cx];
   }
-
+  
   //1b) Allocate memory
 
-  for(int cyi = 0; cyi< total_bins; ++cyi){
-    for(int cxi = 0; cxi< total_bins; ++cxi){
-
-      cudaError_check(cudaMallocManaged((void **)&vis_bins[cyi * chunk_count + cxi].u, bin_chunk_count[cyi * chunk_count + cxi] * sizeof(double)));
-      cudaError_check(cudaMallocManaged((void **)&vis_bins[cyi * chunk_count + cxi].v, bin_chunk_count[cyi * chunk_count + cxi] * sizeof(double)));
-      cudaError_check(cudaMallocManaged((void **)&vis_bins[cyi * chunk_count + cxi].w, bin_chunk_count[cyi * chunk_count + cxi] * sizeof(double)));
-      cudaError_check(cudaMallocManaged((void **)&vis_bins[cyi * chunk_count + cxi].vis, bin_chunk_count[cyi * chunk_count + cxi] * sizeof(double)));
+  for(int cyi = 0; cyi< chunk_count; ++cyi){
+    for(int cxi = 0; cxi< chunk_count; ++cxi){
+      int nv = bin_chunk_count[cyi * chunk_count + cxi];
+      cudaError_check(cudaMallocManaged((void **)&vis_bins[cyi * chunk_count + cxi].u, nv * sizeof(double)));
+      cudaError_check(cudaMallocManaged((void **)&vis_bins[cyi * chunk_count + cxi].v, nv * sizeof(double)));
+      cudaError_check(cudaMallocManaged((void **)&vis_bins[cyi * chunk_count + cxi].w, nv * sizeof(double)));
+      cudaError_check(cudaMallocManaged((void **)&vis_bins[cyi * chunk_count + cxi].vis, nv * sizeof(double _Complex)));
       }
   }
   free(bin_chunk_count); //Cleanliness is godliness. 

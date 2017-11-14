@@ -73,16 +73,6 @@ __device__ void scatter_grid_point_flat(
   int vi;
   for (vi = 0; vi < vis->number_of_vis; ++vi){
     
-    if(vis->u[vi] < u_rng.x ||
-       vis->u[vi] >= u_rng.y ||
-       vis->v[vi] < v_rng.x ||
-       vis->v[vi]  >= v_rng.y ||
-       vis->w[vi] < w_rng.x ||
-       vis->w[vi]  >= w_rng.y) {
-      continue;//Skip
-    }
-    
-    
     //double u = vis->u[vi];
     //double v = vis->v[vi];
     double w = vis->w[vi];
@@ -649,8 +639,15 @@ __host__ cudaError_t wtowers_CUDA_flat(const char* visfile, const char* wkernfil
 			   double theta,  double lambda, double bl_min, double bl_max,
 				  int subgrid_size, int subgrid_margin, double wincrement){
 
-  //API Variables
+  //API Variables.
   cudaError_t error = (cudaError_t)0;
+
+  //Subgrid arithmetic.
+  assert( grid_size % subgrid_size == 0);  
+  int chunk_size = subgrid_size - subgrid_margin;
+  int chunk_count_1d = grid_size / chunk_size + 1;
+  int total_chunks = chunk_count_1d * chunk_count_1d;
+  int wp_min, wp_max;
   
  
   //For Benchmarking.
@@ -678,9 +675,9 @@ __host__ cudaError_t wtowers_CUDA_flat(const char* visfile, const char* wkernfil
   }
 
   cudaError_check(cudaMallocHost((void**)&flat_vis_dat, sizeof(struct flat_vis_data)));
-  cudaError_check(cudaMallocManaged((void**)&vis_bins, sizeof(struct flat_vis_data)));
+  cudaError_check(cudaMallocManaged((void**)&vis_bins, sizeof(struct flat_vis_data) * chunk_count_1d * chunk_count_1d));
   flatten_visibilities_CUDA(vis_dat, flat_vis_dat);
-  bin_flat_visibilities(vis_bins, flat_vis_dat, 256);
+  bin_flat_uv_bins(vis_bins, flat_vis_dat, chunk_count_1d, wincrement, theta, grid_size, chunk_size, &wp_min, &wp_max); 
   // Work out our minimum and maximum w-planes.
 
   double vis_w_min = 0, vis_w_max = 0;
@@ -690,8 +687,8 @@ __host__ cudaError_t wtowers_CUDA_flat(const char* visfile, const char* wkernfil
     if (w_min < vis_w_min) { vis_w_min = w_min; }
     if (w_max > vis_w_max) { vis_w_max = w_max; }
   }
-  int wp_min = (int) floor(vis_w_min / wincrement + 0.5);
-  int wp_max = (int) floor(vis_w_max / wincrement + 0.5);
+  wp_min = (int) floor(vis_w_min / wincrement + 0.5);
+  wp_max = (int) floor(vis_w_max / wincrement + 0.5);
   std::cout << "Our W-Plane Min/Max: " << wp_min << " " << wp_max << "\n";
   
 
@@ -729,12 +726,7 @@ __host__ cudaError_t wtowers_CUDA_flat(const char* visfile, const char* wkernfil
 
   //Allocate subgrids/subimgs on the GPU
   
-  assert( grid_size % subgrid_size == 0);
   
-  int chunk_size = subgrid_size - subgrid_margin;
-  int chunk_count_1d = grid_size / chunk_size + 1;
-  int total_chunks = chunk_count_1d * chunk_count_1d;
-
   //Allocate all our subgrids/subimgs contiguously.
   cuDoubleComplex *subgrids, *subimgs;
   
@@ -835,8 +827,8 @@ __host__ cudaError_t wtowers_CUDA_flat(const char* visfile, const char* wkernfil
 
       w_rng = {w_min, w_max, w_mid};
       
-      scatter_grid_kernel_flat <<< 256, 64, 0, streams[chunk] >>>
-	(vis_bins, wkern_dat, subgrids+subgrid_offset, wkern_size,
+      scatter_grid_kernel_flat <<< 1, 64, 0, streams[chunk] >>>
+	(vis_bins + chunk, wkern_dat, subgrids+subgrid_offset, wkern_size,
 	 subgrid_size, wkern_wstep, theta,
 	 u_mid, v_mid, w_mid, u_rng, v_rng, w_rng);
       cuFFTError_check(cufftExecZ2Z(subgrid_plans[chunk], subgrids+subgrid_offset, subgrids+subgrid_offset, CUFFT_INVERSE));
