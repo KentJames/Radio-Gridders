@@ -1,4 +1,0 @@
-#define GRID_SIZE 512
-#define N GRID_SIZE * GRID_SIZE
-#define THREADS_BLOCK 1024
-
