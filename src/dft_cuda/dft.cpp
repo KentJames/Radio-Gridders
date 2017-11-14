@@ -19,7 +19,7 @@ Institution: University of Cambridge
 
 //Our include
 
-#include "dft_common.h"
+#include "dft_common.cuh"
 
 
 

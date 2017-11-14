@@ -25,7 +25,7 @@ Institution: University of Cambridge
 
 //Our include
 
-#include "wtowers_common.cuh"
+#include "grid_common.cuh"
 
 
 

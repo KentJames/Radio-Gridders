@@ -18,7 +18,7 @@ clean:
 
 
 dft.out: dft_cuda.o dft.o 
-	$(NVCC) $^ -o dft.out $(LDFLAGS)
+	$(NVCC) $^ -o ../../bin/dft.out $(LDFLAGS)
 
 dft_cuda.o: dft_cuda.cu
 	$(NVCC) -c $< -o $@ $(CXXFLAGS)
