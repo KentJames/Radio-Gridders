@@ -295,7 +295,8 @@ __host__ inline void make_hermitian(cuDoubleComplex *uvgrid, int grid_size){
 
 }
 
-__host__ inline void bin_flat_uvw_bins(struct flat_vis_uvw_bin *vis_bins,
+//W-Towers binning. Splits visibilities according to their respective chunk.
+__host__ inline void bin_flat_uv_bins(struct flat_vis_uvw_bin *vis_bins,
 				  struct flat_vis_data *vis,
 				  int chunk_count,
 				  int wincrement,
@@ -307,7 +308,6 @@ __host__ inline void bin_flat_uvw_bins(struct flat_vis_uvw_bin *vis_bins,
 
   //1) Bin in U-V in first instance
   int total_bins = chunk_count * chunk_count;
-  struct flat_vis_uvw_bin *uv_bins = (struct flat_vis_uvw_bin *)malloc(sizeof(struct flat_vis_uvw_bin) * total_bins);
 
   //1a) Pre-compute amount of memory for each u-v bin.
   int *bin_chunk_count = (int *)malloc(total_bins * sizeof(int));
@@ -326,17 +326,38 @@ __host__ inline void bin_flat_uvw_bins(struct flat_vis_uvw_bin *vis_bins,
 
   for(int cyi = 0; cyi< total_bins; ++cyi){
     for(int cxi = 0; cxi< total_bins; ++cxi){
-      uv_bins[cyi * chunk_count + cxi].u = (double *)malloc(bin_chunk_count[cyi * chunk_count + cxi] * sizeof(double));
-      uv_bins[cyi * chunk_count + cxi].v = (double *)malloc(bin_chunk_count[cyi * chunk_count + cxi] * sizeof(double));
-      uv_bins[cyi * chunk_count + cxi].w = (double *)malloc(bin_chunk_count[cyi * chunk_count + cxi] * sizeof(double));
-      uv_bins[cyi * chunk_count + cxi].vis = (double _Complex *)malloc(bin_chunk_count[cyi * chunk_count + cxi] * sizeof(double _Complex));
+
+      cudaError_check(cudaMallocManaged((void **)&vis_bins[cyi * chunk_count + cxi].u, bin_chunk_count[cyi * chunk_count + cxi] * sizeof(double)));
+      cudaError_check(cudaMallocManaged((void **)&vis_bins[cyi * chunk_count + cxi].v, bin_chunk_count[cyi * chunk_count + cxi] * sizeof(double)));
+      cudaError_check(cudaMallocManaged((void **)&vis_bins[cyi * chunk_count + cxi].w, bin_chunk_count[cyi * chunk_count + cxi] * sizeof(double)));
+      cudaError_check(cudaMallocManaged((void **)&vis_bins[cyi * chunk_count + cxi].vis, bin_chunk_count[cyi * chunk_count + cxi] * sizeof(double)));
       }
   }
-
+  free(bin_chunk_count); //Cleanliness is godliness. 
+  
   //1c) Actually bin in memory.
   // We can re-use our bin chunks counts.
   memset(bin_chunk_count,0,total_bins * sizeof(int));
 
+  for(int vi = 0; vi< vis->number_of_vis; ++vi){
+
+    double u = vis->u[vi];
+    double v = vis->v[vi];
+    double w = vis->w[vi];
+    double _Complex visl = vis->vis[vi];
+
+    int cx = (floor(u * theta + 0.5) + grid_size/2) / chunk_size;
+    int cy = (floor(v * theta + 0.5) + grid_size/2) / chunk_size;
+
+    int ci = vis_bins[cy * chunk_count + cx].number_of_vis;
+    
+    vis_bins[cy * chunk_count + cx].u[ci] = u;
+    vis_bins[cy * chunk_count + cx].v[ci] = v;
+    vis_bins[cy * chunk_count + cx].w[ci] = w;
+    vis_bins[cy * chunk_count + cx].vis[ci] = visl;
+
+    ++vis_bins[cy * chunk_count + cx].number_of_vis;
+  }
 }
 
 //Splits our visibilities up into contiguous bins, for each block to apply.
