@@ -338,8 +338,6 @@ __host__ inline void bin_flat_uv_bins(struct flat_vis_data *vis_bins,
   
   //1c) Actually bin in memory.
   // We can re-use our bin chunks counts.
-  memset(bin_chunk_count,0,total_bins * sizeof(int));
-
   for(int vi = 0; vi< vis->number_of_vis; ++vi){
 
     double u = vis->u[vi];
