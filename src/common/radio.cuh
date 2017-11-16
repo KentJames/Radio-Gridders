@@ -499,4 +499,41 @@ __host__ inline void bin_visibilities(struct vis_data *vis, struct vis_data *bin
   std::cout << "Bins processed: " << bins_size << "\n";
 }
 
+
+// Free all flattened visibilities.
+
+__host__ inline void free_flat_visibilities(struct flat_vis_data *fvd, int length){
+
+  for(int i = 0; i < length; ++i){
+
+    free(fvd[i].u);
+    free(fvd[i].v);
+    free(fvd[i].w);
+    free(fvd[i].vis);
+
+  }
+  free(fvd);
+}
+
+__host__ inline void free_flat_visibilities_CUDAh(struct flat_vis_data *fvd, int length){
+
+  for(int i = 0; i < length; ++i){
+    cudaError_check(cudaFreeHost((void *)fvd[i].u));
+    cudaError_check(cudaFreeHost((void *)fvd[i].v));
+    cudaError_check(cudaFreeHost((void *)fvd[i].w));
+    cudaError_check(cudaFreeHost((void *)fvd[i].vis));
+  }
+  cudaError_check(cudaFreeHost(fvd));
+}
+
+__host__ inline void free_flat_visibilities_CUDAd(struct flat_vis_data *fvd, int length){
+
+  for(int i = 0; i < length; ++i){
+    cudaError_check(cudaFree((void *)fvd[i].u));
+    cudaError_check(cudaFree((void *)fvd[i].v));
+    cudaError_check(cudaFree((void *)fvd[i].w));
+    cudaError_check(cudaFree((void *)fvd[i].vis));
+  }
+  cudaError_check(cudaFree(fvd));
+}
 #endif
