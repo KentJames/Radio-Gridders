@@ -46,22 +46,21 @@ __device__ void scatter_grid_add(cuDoubleComplex *uvgrid, int grid_size, int gri
 //Scatters grid points from a non-hierarchical dataset.
 //Advantage: Locality is almost certainly better for fragmented datasets.
 //Disadvantage: Not able to do baseline specific calibration, such as ionosphere correction.
-__device__ void scatter_grid_point_flat(
-					  struct flat_vis_data *vis, // Our bins of UV Data
-					  cuDoubleComplex *uvgrid, // Our main UV Grid
-					  struct w_kernel_data *wkern, //Our W-Kernel
-					  int max_supp, // Max size of W-Kernel
-					  int myU, //Our assigned u/v points.
-					  int myV, // ^^^
-					  double wstep, // W-Increment 
-					  int subgrid_size, //The size of our w-towers subgrid.
-					  double theta, // Field of View Size
-					  int offset_u, // Offset from top left of main grid to t.l of subgrid.
-					  int offset_v, // ^^^^
-					  int offset_w,
-					  double3 u_rng,
-					  double3 v_rng,
-					  double3 w_rng
+__device__ void scatter_grid_point_flat(struct flat_vis_data *vis, // Our bins of UV Data
+					cuDoubleComplex *uvgrid, // Our main UV Grid
+					struct w_kernel_data *wkern, //Our W-Kernel
+					int max_supp, // Max size of W-Kernel
+					int myU, //Our assigned u/v points.
+					int myV, // ^^^
+					double wstep, // W-Increment 
+					int subgrid_size, //The size of our w-towers subgrid.
+					double theta, // Field of View Size
+					int offset_u, // Offset from top left of main grid to t.l of subgrid.
+					int offset_v, // ^^^^
+					int offset_w,
+					double3 u_rng,
+					double3 v_rng,
+					double3 w_rng
 					  ){ 
 
   int grid_point_u = myU, grid_point_v = myV;
@@ -71,6 +70,8 @@ __device__ void scatter_grid_point_flat(
   
   //  for (int i = 0; i < visibilities; i++) {
   int vi;
+
+  if (vis -> number_of_vis < 1) return;
   for (vi = 0; vi < vis->number_of_vis; ++vi){
 
 
@@ -129,22 +130,21 @@ __device__ void scatter_grid_point_flat(
 
 //From Kyrills Implementation in SKA/RC. Modified to suit our data format.
 //Assumes pre-binned (in u/v) data
-__device__ void scatter_grid_point(
-					  struct vis_data *bin, // Our bins of UV Data
-					  cuDoubleComplex *uvgrid, // Our main UV Grid
-					  struct w_kernel_data *wkern, //Our W-Kernel
-					  int max_supp, // Max size of W-Kernel
-					  int myU, //Our assigned u/v points.
-					  int myV, // ^^^
-					  double wstep, // W-Increment 
-					  int subgrid_size, //The size of our w-towers subgrid.
-					  double theta, // Field of View Size
-					  int offset_u, // Offset from top left of main grid to t.l of subgrid.
-					  int offset_v, // ^^^^
-					  int offset_w,
-					  double3 u_rng,
-					  double3 v_rng,
-					  double3 w_rng
+__device__ void scatter_grid_point(struct vis_data *bin, // Our bins of UV Data
+				   cuDoubleComplex *uvgrid, // Our main UV Grid
+				   struct w_kernel_data *wkern, //Our W-Kernel
+				   int max_supp, // Max size of W-Kernel
+				   int myU, //Our assigned u/v points.
+				   int myV, // ^^^
+				   double wstep, // W-Increment 
+				   int subgrid_size, //The size of our w-towers subgrid.
+				   double theta, // Field of View Size
+				   int offset_u, // Offset from top left of main grid to t.l of subgrid.
+				   int offset_v, // ^^^^
+				   int offset_w,
+				   double3 u_rng,
+				   double3 v_rng,
+				   double3 w_rng
 					  ){ 
 
   int grid_point_u = myU, grid_point_v = myV;
@@ -665,7 +665,7 @@ __host__ cudaError_t wtowers_CUDA_flat(const char* visfile, const char* wkernfil
 
   // Load visibility and w-kernel data from HDF5 files.
   struct vis_data *vis_dat;
-  struct flat_vis_data *flat_vis_dat, *vis_bins;
+  struct flat_vis_data *flat_vis_dat, *vis_bins, *vis_bins_w;
   struct w_kernel_data *wkern_dat;
 
   cudaError_check(cudaMallocManaged((void **)&vis_dat, sizeof(struct vis_data), cudaMemAttachGlobal));
@@ -684,25 +684,6 @@ __host__ cudaError_t wtowers_CUDA_flat(const char* visfile, const char* wkernfil
   }
 
 
-  int vis_blocks=32;
-  
-  cudaError_check(cudaMallocHost((void**)&flat_vis_dat, sizeof(struct flat_vis_data)));
-  cudaError_check(cudaMallocManaged((void**)&vis_bins, sizeof(struct flat_vis_data) * total_chunks));
-  flatten_visibilities_CUDA(vis_dat, flat_vis_dat);
-  weight_flat((unsigned int *)grid_host, grid_size, theta, flat_vis_dat);
-  cudaError_check(cudaMemset(grid_host,0.0,total_gs * sizeof(cuDoubleComplex)));
-  bin_flat_uv_bins(vis_bins, flat_vis_dat, chunk_count_1d, wincrement, theta, grid_size, chunk_size, &wp_min, &wp_max); 
-  // Work out our minimum and maximum w-planes.
-
-  struct flat_vis_data *flat_vis_dat_chunked;
-  cudaError_check(cudaMallocManaged((void **)&flat_vis_dat_chunked, sizeof(struct flat_vis_data) * total_chunks * vis_blocks));
-  for(int i = 0; i < total_chunks; ++i){
-
-    bin_flat_visibilities(flat_vis_dat_chunked+vis_blocks*i, vis_bins+i, vis_blocks);
-
-  }
-
-  
 
   double vis_w_min = 0, vis_w_max = 0;
   for (int bl = 0; bl < vis_dat->bl_count; ++bl){
@@ -714,11 +695,28 @@ __host__ cudaError_t wtowers_CUDA_flat(const char* visfile, const char* wkernfil
   wp_min = (int) floor(vis_w_min / wincrement + 0.5);
   wp_max = (int) floor(vis_w_max / wincrement + 0.5);
   std::cout << "Our W-Plane Min/Max: " << wp_min << " " << wp_max << "\n";
+  int wp_tot = abs(wp_min - wp_max);
+  int vis_blocks=128;
+  cudaError_check(cudaMallocHost((void**)&flat_vis_dat, sizeof(struct flat_vis_data)));
+  cudaError_check(cudaMallocManaged((void**)&vis_bins, sizeof(struct flat_vis_data) * total_chunks));
+  cudaError_check(cudaMallocManaged((void**)&vis_bins_w, sizeof(struct flat_vis_data) * total_chunks * abs(wp_min - wp_max)));
+  flatten_visibilities_CUDA(vis_dat, flat_vis_dat);
+  weight_flat((unsigned int *)grid_host, grid_size, theta, flat_vis_dat);
+  cudaError_check(cudaMemset(grid_host,0.0,total_gs * sizeof(cuDoubleComplex)));
+  bin_flat_uv_bins(vis_bins, flat_vis_dat, chunk_count_1d, wincrement, theta, grid_size, chunk_size, &wp_min, &wp_max);
+  free_flat_visibilities_CUDAh(flat_vis_dat, 1);
   
+  bin_flat_w_vis(vis_bins, vis_bins_w, vis_w_max, vis_w_min, wincrement, chunk_count_1d);
+  // Work out our minimum and maximum w-planes.
 
+  struct flat_vis_data *flat_vis_dat_chunked;
+  cudaError_check(cudaMallocManaged((void **)&flat_vis_dat_chunked, sizeof(struct flat_vis_data) * total_chunks * wp_tot * vis_blocks));
+  for(int i = 0; i < total_chunks*wp_tot; ++i){
 
+    bin_flat_visibilities(flat_vis_dat_chunked+vis_blocks*i, vis_bins_w+i, vis_blocks);
 
-
+  }
+  
 
   //Create the fresnel interference pattern for the W-Dimension
   //Can make this a kernel.
@@ -739,9 +737,6 @@ __host__ cudaError_t wtowers_CUDA_flat(const char* visfile, const char* wkernfil
   }
   fft_shift(wtransfer, subgrid_size);
 
-  //Allocate subgrids/subimgs on the GPU
-  
-  
   //Allocate all our subgrids/subimgs contiguously.
   cuDoubleComplex *subgrids, *subimgs;
   
@@ -799,6 +794,8 @@ __host__ cudaError_t wtowers_CUDA_flat(const char* visfile, const char* wkernfil
   int last_wp = wp_min;
   // Lets get gridding!
 
+  std::cout << "Begin Gridding. W-Plane Min/Max: " << wp_min << " " << wp_max << "\n\n";
+
   int wkern_size = wkern_dat->size_x;
   int wkern_wstep = wkern_dat->w_step;
     
@@ -835,9 +832,9 @@ __host__ cudaError_t wtowers_CUDA_flat(const char* visfile, const char* wkernfil
       double w_max = ((double)wp + 0.5) * wincrement;
 
       w_rng = {w_min, w_max, w_mid};
-      
+      int wp_zero = wp + wp_max;
       scatter_grid_kernel_flat <<< vis_blocks, 128, 0, streams[chunk] >>>
-	(flat_vis_dat_chunked+chunk*vis_blocks, wkern_dat, subgrids+subgrid_offset, wkern_size,
+	(flat_vis_dat_chunked + chunk * wp_tot * vis_blocks + wp * wp_zero, wkern_dat, subgrids+subgrid_offset, wkern_size,
 	 subgrid_size, wkern_wstep, theta,
 	 u_mid, v_mid, w_mid, u_rng, v_rng, w_rng);
       cuFFTError_check(cufftExecZ2Z(subgrid_plans[chunk], subgrids+subgrid_offset, subgrids+subgrid_offset, CUFFT_INVERSE));

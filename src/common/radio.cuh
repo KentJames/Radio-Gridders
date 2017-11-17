@@ -328,6 +328,8 @@ __host__ inline void bin_flat_uv_bins(struct flat_vis_data *vis_bins,
   for(int cyi = 0; cyi< chunk_count; ++cyi){
     for(int cxi = 0; cxi< chunk_count; ++cxi){
       int nv = bin_chunk_count[cyi * chunk_count + cxi];
+      std::cout<< "Vis count in chunk " << (cyi * chunk_count + cxi) << " : " << nv << "\n";
+      
       cudaError_check(cudaMallocManaged((void **)&vis_bins[cyi * chunk_count + cxi].u, nv * sizeof(double)));
       cudaError_check(cudaMallocManaged((void **)&vis_bins[cyi * chunk_count + cxi].v, nv * sizeof(double)));
       cudaError_check(cudaMallocManaged((void **)&vis_bins[cyi * chunk_count + cxi].w, nv * sizeof(double)));
@@ -338,6 +340,8 @@ __host__ inline void bin_flat_uv_bins(struct flat_vis_data *vis_bins,
   
   //1c) Actually bin in memory.
   // We can re-use our bin chunks counts.
+
+  
   for(int vi = 0; vi< vis->number_of_vis; ++vi){
 
     double u = vis->u[vi];
@@ -358,6 +362,77 @@ __host__ inline void bin_flat_uv_bins(struct flat_vis_data *vis_bins,
     ++vis_bins[cy * chunk_count + cx].number_of_vis;
   }
 }
+
+
+__host__ inline void bin_flat_w_vis(struct flat_vis_data *vis_bins, //Our (filled) U-V gridded bins.
+			       struct flat_vis_data *new_bins, //Our (pre-allocated) U-V-W gridder bins. 
+			       double w_max, // Maximum w-value.
+			       double w_min, // Minimum w-value
+			       double wincrement, //Increment between w-planes
+			       int chunk_count){
+
+
+  int wp_min = (int) floor(w_min / wincrement + 0.5);
+  int wp_max = (int) floor(w_max / wincrement + 0.5);
+  int wp_tot = abs(wp_min - wp_max);
+  std::cout << "WP_TOT: " << wp_tot << "\n";
+  int total_bins = chunk_count * chunk_count;
+  int *bin_chunk_count = (int *)malloc(total_bins * wp_tot * sizeof(int));
+  memset(bin_chunk_count, 0, total_bins * wp_tot * sizeof(int));
+  //Pre-compute size of bins.
+  for(int cyi = 0; cyi < chunk_count; ++cyi){
+    for(int cxi = 0; cxi < chunk_count; ++cxi){
+
+      struct flat_vis_data *uv_bin = &vis_bins[cyi * chunk_count + cxi];
+      for(int i = 0; i<uv_bin->number_of_vis; ++i){
+	double w = uv_bin->w[i];
+	int wp = abs((w - w_min) / (wincrement + 0.5));
+	++bin_chunk_count[cyi * (chunk_count + wp_tot) + cxi * wp_tot + wp];
+      }
+    }
+  }
+
+  //Allocate memory to all bins. Even empty bins. Kernels run through empty bins in ~50uS.
+  for(int cyi = 0; cyi < chunk_count; ++cyi){
+    for(int cxi = 0; cxi < chunk_count; ++cxi){
+      for(int wp = 0; wp < wp_tot; ++wp){
+	int bi = (cyi * (chunk_count * wp_tot)) + (cxi * wp_tot) + wp;
+	int nv = bin_chunk_count[bi];
+	cudaError_check(cudaMallocManaged((void **)&new_bins[bi].u, nv * sizeof(double)));
+	cudaError_check(cudaMallocManaged((void **)&new_bins[bi].v, nv * sizeof(double)));
+	cudaError_check(cudaMallocManaged((void **)&new_bins[bi].w, nv * sizeof(double)));
+	cudaError_check(cudaMallocManaged((void **)&new_bins[bi].vis, nv * sizeof(double _Complex)));
+      }
+    }
+  }
+  
+  //Re-bin data as UV -> UVW
+  for(int cyi = 0; cyi < chunk_count; ++cyi){
+    for(int cxi = 0; cxi < chunk_count; ++cxi){
+
+      struct flat_vis_data *uv_bin = &vis_bins[cyi * chunk_count + cxi];
+      for(int vi = 0; vi < uv_bin->number_of_vis; ++vi){
+
+	double u = uv_bin->u[vi];
+	double v = uv_bin->v[vi];
+	double w = uv_bin->w[vi];
+	double _Complex visl = uv_bin->vis[vi];
+	int wp = abs((w - w_min) / (wincrement + 0.5));
+
+	int bi = cyi * (chunk_count + wp_tot) + cxi * wp_tot + wp;
+	int ci = new_bins[bi].number_of_vis;
+	new_bins[bi].u[ci] = u;
+	new_bins[bi].v[ci] = v;
+	new_bins[bi].w[ci] = w;
+	new_bins[bi].vis[ci] = visl;
+
+	++new_bins[bi].number_of_vis;
+      }
+    }
+  }			       
+}			       
+
+
 
 //Splits our visibilities up into contiguous bins, for each block to apply.
 __host__ inline void bin_flat_visibilities(struct flat_vis_data *vis_bins,
