@@ -374,7 +374,7 @@ __host__ inline void bin_flat_w_vis(struct flat_vis_data *vis_bins, //Our (fille
 
   int wp_min = (int) floor(w_min / wincrement + 0.5);
   int wp_max = (int) floor(w_max / wincrement + 0.5);
-  int wp_tot = abs(wp_min - wp_max);
+  int wp_tot = abs(wp_min - wp_max) + 1;
   std::cout << "WP_TOT: " << wp_tot << "\n";
   int total_bins = chunk_count * chunk_count;
   int *bin_chunk_count = (int *)malloc(total_bins * wp_tot * sizeof(int));
@@ -386,8 +386,9 @@ __host__ inline void bin_flat_w_vis(struct flat_vis_data *vis_bins, //Our (fille
       struct flat_vis_data *uv_bin = &vis_bins[cyi * chunk_count + cxi];
       for(int i = 0; i<uv_bin->number_of_vis; ++i){
 	double w = uv_bin->w[i];
-	int wp = abs((w - w_min) / (wincrement + 0.5));
-	++bin_chunk_count[cyi * (chunk_count + wp_tot) + cxi * wp_tot + wp];
+	int wp = floor((w + abs(w_min)) / wincrement + 0.5);
+	//	int wp = abs((w / wincrement + 0.5) + abs(wp_min));
+	++bin_chunk_count[(cyi * (chunk_count * wp_tot)) + (cxi * wp_tot) + wp];
       }
     }
   }
@@ -417,9 +418,11 @@ __host__ inline void bin_flat_w_vis(struct flat_vis_data *vis_bins, //Our (fille
 	double v = uv_bin->v[vi];
 	double w = uv_bin->w[vi];
 	double _Complex visl = uv_bin->vis[vi];
-	int wp = abs((w - w_min) / (wincrement + 0.5));
+	int wp = floor((w + abs(w_min)) / wincrement + 0.5);
+		//	int wp = abs((w / wincrement + 0.5) + abs(wp_min));
+	  //	int wp = abs((w - w_min) / (wincrement + 0.5));
 
-	int bi = cyi * (chunk_count + wp_tot) + cxi * wp_tot + wp;
+	int bi = (cyi * (chunk_count * wp_tot)) + (cxi * wp_tot) + wp;
 	int ci = new_bins[bi].number_of_vis;
 	new_bins[bi].u[ci] = u;
 	new_bins[bi].v[ci] = v;
@@ -447,7 +450,7 @@ __host__ inline void bin_flat_visibilities(struct flat_vis_data *vis_bins,
 
   int i;
   for(i = 0; i < blocks-1; ++i){
-
+    
     cudaError_check(cudaMallocManaged((void**)&(vis_bins+i)->u,
 				      sizeof(double) * vis_per_block, cudaMemAttachGlobal));
     cudaError_check(cudaMallocManaged((void**)&(vis_bins+i)->v,
