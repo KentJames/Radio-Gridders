@@ -73,8 +73,6 @@ __device__ void scatter_grid_point_flat(struct flat_vis_data *vis, // Our bins o
 
   if (vis -> number_of_vis < 1) return;
   for (vi = 0; vi < vis->number_of_vis; ++vi){
-
-
     
     //double u = vis->u[vi];
     //double v = vis->v[vi];
@@ -338,6 +336,7 @@ __global__ void scatter_grid_kernel_flat(
 					 ){
 
   //Assign some visibilities to grid;
+  if ((vis+blockIdx.x)->number_of_vis == 0) return;
   
   for(int i = threadIdx.x; i < max_support * max_support; i += blockDim.x){
     //  int i = threadIdx.x + blockIdx.x * blockDim.x;
@@ -720,7 +719,7 @@ __host__ cudaError_t wtowers_CUDA_flat(const char* visfile, const char* wkernfil
   int wp_tot = abs(wp_min - wp_max) + 1 ;
   std::cout << "WP_TOT: " << wp_tot << "\n";
   
-  int vis_blocks=32;
+  int vis_blocks=128;
   cudaError_check(cudaMallocHost((void**)&flat_vis_dat, sizeof(struct flat_vis_data)));
   cudaError_check(cudaMallocManaged((void**)&vis_bins, sizeof(struct flat_vis_data) * total_chunks));
   cudaError_check(cudaMallocManaged((void**)&vis_bins_w, sizeof(struct flat_vis_data) * total_chunks * wp_tot));
@@ -735,11 +734,11 @@ __host__ cudaError_t wtowers_CUDA_flat(const char* visfile, const char* wkernfil
 
   struct flat_vis_data *flat_vis_dat_chunked;
   cudaError_check(cudaMallocManaged((void **)&flat_vis_dat_chunked, sizeof(struct flat_vis_data) * total_chunks * wp_tot * vis_blocks));
-  /*  for(int i = 0; i < total_chunks; ++i){
+  for(int i = 0; i < total_chunks * wp_tot; ++i){
 
-    bin_flat_visibilities(flat_vis_dat_chunked+vis_blocks*i, vis_bins+i, vis_blocks);
-
-    }*/
+    bin_flat_visibilities(flat_vis_dat_chunked+vis_blocks*i, vis_bins_w+i, vis_blocks);
+    
+  }
   
 
   //Create the fresnel interference pattern for the W-Dimension
@@ -857,8 +856,8 @@ __host__ cudaError_t wtowers_CUDA_flat(const char* visfile, const char* wkernfil
 
       w_rng = {w_min, w_max, w_mid};
       int wp_zero = wp + abs(wp_min);
-      scatter_grid_kernel_flat <<< 1, 128, 0, streams[chunk] >>>
-	(vis_bins_w + chunk * wp_tot + wp_zero, wkern_dat, subgrids+subgrid_offset, wkern_size,
+      scatter_grid_kernel_flat <<< vis_blocks, 128, 0, streams[chunk] >>>
+	(flat_vis_dat_chunked + chunk * wp_tot * vis_blocks + wp_zero * vis_blocks, wkern_dat, subgrids+subgrid_offset, wkern_size,
 	 subgrid_size, wkern_wstep, theta,
 	 u_mid, v_mid, w_mid, u_rng, v_rng, w_rng);
       cuFFTError_check(cufftExecZ2Z(subgrid_plans[chunk], subgrids+subgrid_offset, subgrids+subgrid_offset, CUFFT_INVERSE));

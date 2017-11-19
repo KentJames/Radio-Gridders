@@ -438,16 +438,18 @@ __host__ inline void bin_flat_w_vis(struct flat_vis_data *vis_bins, //Our (fille
 
 
 //Splits our visibilities up into contiguous bins, for each block to apply.
+//This is the final step and allows the GPU to work effectively on the data.
 __host__ inline void bin_flat_visibilities(struct flat_vis_data *vis_bins,
 					   struct flat_vis_data *vis,
 					   int blocks){
 
-  std::cout << "Binning Visibilities. No. of vis: " << vis->number_of_vis << " No. of Blocks: " << blocks << "\n";
-  
   int vis_per_block = vis->number_of_vis / blocks;
   int leftovers = vis->number_of_vis % blocks;
 
+  std::cout << "Binning Visibilities. No. of vis: " << vis->number_of_vis << " No. of Blocks: " << blocks << "\n";
+  std::cout << "Visibilities per block: " << vis_per_block << " Leftovers: " << leftovers <<"\n";
 
+  
   int i;
   for(i = 0; i < blocks-1; ++i){
     
