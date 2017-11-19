@@ -374,7 +374,7 @@ __host__ inline void bin_flat_w_vis(struct flat_vis_data *vis_bins, //Our (fille
 
   int wp_min = (int) floor(w_min / wincrement + 0.5);
   int wp_max = (int) floor(w_max / wincrement + 0.5);
-  int wp_tot = abs(wp_min - wp_max) + 1;
+  int wp_tot = abs(wp_min - wp_max);
   std::cout << "WP_TOT: " << wp_tot << "\n";
   int total_bins = chunk_count * chunk_count;
   int *bin_chunk_count = (int *)malloc(total_bins * wp_tot * sizeof(int));

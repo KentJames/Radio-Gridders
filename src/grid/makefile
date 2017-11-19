@@ -2,7 +2,7 @@ NVCC = nvcc
 CC = gcc
 CXX = g++
 
-CFLAGS= -g -gencode arch=compute_35,code=sm_35
+CFLAGS= -gencode arch=compute_35,code=sm_35
 CXXFLAGS=-std=c++11 -gencode arch=compute_35,code=sm_35 -I../common
 LDFLAGS=-lhdf5 -lm -lcufft -lcublas -gencode arch=compute_35,code=sm_35 -L../common -lhdf5_cu
 CUDA_FLAGS=-Xcompiler -fopenmp -Xptxas -v,
