@@ -188,10 +188,14 @@ int main (int argc, char **argv) {
   const char* visfile_c = visfile;
   const char* wkernfile_c = wkernfile;
 
-  cuDoubleComplex *image_host, *grid_dev;
+  //Allocate our main grid.
+  
+  int total_gs = grid_size * grid_size;
+  
+  cuDoubleComplex *grid_dev, *grid_host;
+  cudaError_check(cudaMalloc((void **)&grid_dev, total_gs * sizeof(cuDoubleComplex)));
+  cudaError_check(cudaMallocHost((void **)&grid_host, total_gs * sizeof(cuDoubleComplex)));
 
-  //May as well allocate our host image now for when we move it back.
-  image_host = (cuDoubleComplex*)malloc(grid_size * grid_size * sizeof(cuDoubleComplex));
 
   //  int threads_block = prop[1].maxThreadsPerBlock
   
@@ -201,15 +205,17 @@ int main (int argc, char **argv) {
 
       std::cout << "W-Projection Gridder(on flattened dataset)... \n";
       std::cout << "BL Max: " << bl_max << " BL Min: " << bl_min << " \n";
-      wprojection_CUDA_flat(visfile_c, wkernfile_c, grid_size, theta, lambda,
-		       bl_min, bl_max, prop[0].maxThreadsPerBlock);
+      wproj_CUDA_flat(visfile_c, wkernfile_c, grid_dev, grid_host, grid_size,
+		      theta, lambda,
+		      bl_min, bl_max, prop[0].maxThreadsPerBlock);
 
 
     } else {
       std::cout << "W-Projection Gridder... \n";
       std::cout << "BL Max: " << bl_max << " BL Min: " << bl_min << " \n";
-      wprojection_CUDA(visfile_c, wkernfile_c, grid_size, theta, lambda,
-		       bl_min, bl_max, prop[0].maxThreadsPerBlock);
+      wproj_CUDA(visfile_c, wkernfile_c, grid_dev, grid_host, grid_size,
+		 theta, lambda,
+		 bl_min, bl_max, prop[0].maxThreadsPerBlock);
     }
   }
   else {
@@ -218,19 +224,48 @@ int main (int argc, char **argv) {
 
       std::cout << "W-Towers Gridder(on flattened dataset) ... \n";
       std::cout << "BL Max: " << bl_max << " BL Min: " << bl_min << " \n";
-      wtowers_CUDA_flat(visfile_c, wkernfile_c, grid_size, theta, lambda, bl_min, bl_max,
+      wtowers_CUDA_flat(visfile_c, wkernfile_c, grid_dev, grid_host, grid_size,
+			theta, lambda, bl_min, bl_max,
 			subgrid_size, subgrid_margin, winc);
 
     } else {
       
       std::cout << "W-Towers Gridder... \n";
       std::cout << "BL Max: " << bl_max << " BL Min: " << bl_min << " \n";
-      wtowers_CUDA(visfile_c, wkernfile_c, grid_size, theta, lambda, bl_min, bl_max,
+      wtowers_CUDA(visfile_c, wkernfile_c, grid_dev, grid_host, grid_size,
+		   theta, lambda, bl_min, bl_max,
 		   subgrid_size, subgrid_margin, winc);
 
     }
   }
   
+  //Transfer back to host.
+  cudaError_check(cudaMemcpy(grid_host, grid_dev, total_gs * sizeof(cuDoubleComplex),
+			     cudaMemcpyDeviceToHost));
+
+
+  //Write Image to disk on host.
+
+  std::ofstream image_f ("image.out", std::ofstream::out | std::ofstream::binary);
+  std::cout << "Writing Image to File... \n";
+  double *row = (double *)malloc(sizeof(double) * grid_size);
+  //  fft_shift(grid_host,grid_size);
+  for(int i = 0; i < grid_size; ++i){
+
+    for(int j = 0; j< grid_size; ++j){
+
+      row[j] = cuCreal(grid_host[i*grid_size + j]);
+    }
+    image_f.write((char*)row, sizeof(double) * grid_size);
+  }
+
+  image_f.close();
+
+  //Check it actually ran...
+  cudaError_t err = cudaGetLastError();
+  std::cout << "Error: " << cudaGetErrorString(err) << "\n";
+
+  cudaError_check(cudaDeviceReset());
   
 
 

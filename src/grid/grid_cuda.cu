@@ -383,8 +383,9 @@ __global__ void scatter_grid_kernel(struct vis_data *bin, // Baseline bin
 *******************************/
 
 //W-Towers Wrapper.
-__host__ cudaError_t wtowers_CUDA(const char* visfile, const char* wkernfile, int grid_size,
-			   double theta,  double lambda, double bl_min, double bl_max,
+__host__ cudaError_t wtowers_CUDA(const char* visfile, const char* wkernfile,
+				  cuDoubleComplex *grid, cuDoubleComplex *gridh, int grid_size,
+				  double theta,  double lambda, double bl_min, double bl_max,
 				  int subgrid_size, int subgrid_margin, double wincrement){
 
   //API Variables
@@ -427,20 +428,8 @@ __host__ cudaError_t wtowers_CUDA(const char* visfile, const char* wkernfile, in
   int wp_max = (int) floor(vis_w_max / wincrement + 0.5);
   std::cout << "Our W-Plane Min/Max: " << wp_min << " " << wp_max << "\n";
 
-
-  
   //Allocate our main grid.
   
-  int total_gs = grid_size * grid_size;
-  
-  cuDoubleComplex *grid_dev, *grid_host;
-  cudaError_check(cudaMalloc((void **)&grid_dev, total_gs * sizeof(cuDoubleComplex)));
-  cudaError_check(cudaMallocHost((void **)&grid_host, total_gs * sizeof(cuDoubleComplex)));
-
-
-
-
-
   //Create the fresnel interference pattern for the W-Dimension
   //Can make this a kernel.
   //See Tim Cornwells paper on W-Projection for more information.
@@ -584,34 +573,13 @@ __host__ cudaError_t wtowers_CUDA(const char* visfile, const char* wkernfile, in
 
   }
   cudaError_check(cudaDeviceSynchronize());
-  add_subs2main_kernel <<< dimGrid_main, dimBlock_main >>> (grid_dev, subimgs, grid_size, subgrid_size,
-  					  subgrid_margin, chunk_count_1d, chunk_size);
-
-  cudaError_check(cudaMemcpy(grid_host, grid_dev, total_gs * sizeof(cuDoubleComplex),
-			     cudaMemcpyDeviceToHost));
-
-  double *row = (double *) malloc(sizeof(double)*grid_size);
-
-  std::ofstream image_pre ("pre_fft.out", std::ofstream::out | std::ofstream::binary);
-  std::cout << "Writing Image to File... \n";
-
-  //  fft_shift(grid_host,grid_size);
-  for(int i = 0; i < grid_size; ++i){
-
-    for(int j = 0; j< grid_size; ++j){
-
-      row[j] = cuCreal(grid_host[i*grid_size + j]);
-    }
-    image_pre.write((char*)row, sizeof(double) * grid_size);
-  }
-
-  image_pre.close();
+  add_subs2main_kernel <<< dimGrid_main, dimBlock_main >>> (grid, subimgs, grid_size, subgrid_size,
+  					  subgrid_margin, chunk_count_1d, chunk_size);  
   
-  
-  fft_shift_kernel <<< dimGrid_main, dimBlock_main >>> (grid_dev, grid_size);
-  cuFFTError_check(cufftExecZ2Z(grid_plan, grid_dev, grid_dev, CUFFT_INVERSE));
+  fft_shift_kernel <<< dimGrid_main, dimBlock_main >>> (grid, grid_size);
+  cuFFTError_check(cufftExecZ2Z(grid_plan, grid, grid, CUFFT_INVERSE));
 
-  fft_shift_kernel <<< dimGrid_main, dimBlock_main >>> (grid_dev, grid_size);
+  fft_shift_kernel <<< dimGrid_main, dimBlock_main >>> (grid, grid_size);
   
 
   cudaEventCreate(&stop);
@@ -619,44 +587,15 @@ __host__ cudaError_t wtowers_CUDA(const char* visfile, const char* wkernfile, in
   cudaEventSynchronize(stop);
   cudaEventElapsedTime(&elapsedTime,start,stop);
   std::cout << "Scatter Gridder Elapsed Time: " << elapsedTime/1000.0 << " seconds\n";
-  
-  //Transfer back to host.
-  cudaError_check(cudaMemcpy(grid_host, grid_dev, total_gs * sizeof(cuDoubleComplex),
-  			     cudaMemcpyDeviceToHost));
-  
-  
-  //Write Image to disk on host.
-  
-  std::ofstream image_f ("image.out", std::ofstream::out | std::ofstream::binary);
-  std::cout << "Writing Image to File... \n";
-
-  //  fft_shift(grid_host,grid_size);
-  for(int i = 0; i < grid_size; ++i){
-
-    for(int j = 0; j< grid_size; ++j){
-
-      row[j] = cuCreal(grid_host[i*grid_size + j]);
-    }
-    image_f.write((char*)row, sizeof(double) * grid_size);
-  }
-
-  image_f.close();
-  
-  //Check it actually ran...
-  cudaError_t err = cudaGetLastError();
-  std::cout << "Error: " << cudaGetErrorString(err) << "\n";
-  
-  cudaError_check(cudaDeviceReset());
-  
-  
   return error;
-
+   
 }
 
 //W-Towers Wrapper.
-__host__ cudaError_t wtowers_CUDA_flat(const char* visfile, const char* wkernfile, int grid_size,
-			   double theta,  double lambda, double bl_min, double bl_max,
-				  int subgrid_size, int subgrid_margin, double wincrement){
+__host__ cudaError_t wtowers_CUDA_flat(const char* visfile, const char* wkernfile,
+				       cuDoubleComplex *grid, cuDoubleComplex *gridh, int grid_size,
+				       double theta,  double lambda, double bl_min, double bl_max,
+				       int subgrid_size, int subgrid_margin, double wincrement){
 
   //API Variables.
   cudaError_t error = (cudaError_t)0;
@@ -674,11 +613,6 @@ __host__ cudaError_t wtowers_CUDA_flat(const char* visfile, const char* wkernfil
   
   int total_gs = grid_size * grid_size;
   
-  cuDoubleComplex *grid_dev, *grid_host;
-  cudaError_check(cudaMalloc((void **)&grid_dev, total_gs * sizeof(cuDoubleComplex)));
-  cudaError_check(cudaMallocHost((void **)&grid_host, total_gs * sizeof(cuDoubleComplex)));
-
-
   //For Benchmarking.
   cudaEvent_t start, stop;
   float elapsedTime;
@@ -723,8 +657,8 @@ __host__ cudaError_t wtowers_CUDA_flat(const char* visfile, const char* wkernfil
   cudaError_check(cudaMallocManaged((void**)&vis_bins, sizeof(struct flat_vis_data) * total_chunks));
   cudaError_check(cudaMallocManaged((void**)&vis_bins_w, sizeof(struct flat_vis_data) * total_chunks * wp_tot));
   flatten_visibilities_CUDA(vis_dat, flat_vis_dat);
-  weight_flat((unsigned int *)grid_host, grid_size, theta, flat_vis_dat);
-  cudaError_check(cudaMemset(grid_host,0.0,total_gs * sizeof(cuDoubleComplex)));
+  weight_flat((unsigned int *)gridh, grid_size, theta, flat_vis_dat);
+  cudaError_check(cudaMemset(grid,0.0,total_gs * sizeof(cuDoubleComplex)));
   bin_flat_uv_bins(vis_bins, flat_vis_dat, chunk_count_1d, wincrement, theta, grid_size, chunk_size, &wp_min, &wp_max);
   bin_flat_w_vis(vis_bins, vis_bins_w, vis_w_max, vis_w_min, wincrement, chunk_count_1d);
   // Work out our minimum and maximum w-planes.
@@ -885,52 +819,22 @@ __host__ cudaError_t wtowers_CUDA_flat(const char* visfile, const char* wkernfil
   std::cout << "Scatter Gridder Elapsed Time: " << elapsedTime/1000.0 << " seconds\n";
   
   
-  add_subs2main_kernel <<< dimGrid_main, dimBlock_main >>> (grid_dev, subimgs, grid_size, subgrid_size,
+  add_subs2main_kernel <<< dimGrid_main, dimBlock_main >>> (grid, subimgs, grid_size, subgrid_size,
   					  subgrid_margin, chunk_count_1d, chunk_size);
-  fft_shift_kernel <<< dimGrid_main, dimBlock_main >>> (grid_dev, grid_size);
-  cuFFTError_check(cufftExecZ2Z(grid_plan, grid_dev, grid_dev, CUFFT_INVERSE));
+  fft_shift_kernel <<< dimGrid_main, dimBlock_main >>> (grid, grid_size);
+  cuFFTError_check(cufftExecZ2Z(grid_plan, grid, grid, CUFFT_INVERSE));
 
-  fft_shift_kernel <<< dimGrid_main, dimBlock_main >>> (grid_dev, grid_size);
-
-  //Transfer back to host.
-  cudaError_check(cudaMemcpy(grid_host, grid_dev, total_gs * sizeof(cuDoubleComplex),
-  			     cudaMemcpyDeviceToHost));
-  
-  
-  //Write Image to disk on host.
-  double *row = (double *) malloc(sizeof(double)*grid_size);
-  std::ofstream image_f ("image.out", std::ofstream::out | std::ofstream::binary);
-  std::cout << "Writing Image to File... \n";
-
-  //  fft_shift(grid_host,grid_size);
-  for(int i = 0; i < grid_size; ++i){
-
-    for(int j = 0; j< grid_size; ++j){
-
-      row[j] = cuCreal(grid_host[i*grid_size + j]);
-    }
-    image_f.write((char*)row, sizeof(double) * grid_size);
-  }
-
-  image_f.close();
-  
-  //Check it actually ran...
-  cudaError_t err = cudaGetLastError();
-  std::cout << "Error: " << cudaGetErrorString(err) << "\n";
-  
-  cudaError_check(cudaDeviceReset());
-  
+  fft_shift_kernel <<< dimGrid_main, dimBlock_main >>> (grid, grid_size);
   
   return error;
 
 }
 
-
-
 // Pure W-Projection on a Hierarchical Dataset. (AoS)
-__host__ cudaError_t wprojection_CUDA(const char* visfile, const char* wkernfile, int grid_size,
-				      double theta,  double lambda, double bl_min, double bl_max,
-				      int threads_per_block){
+__host__ cudaError_t wproj_CUDA(const char* visfile, const char* wkernfile,
+				cuDoubleComplex *grid, cuDoubleComplex *gridh, int grid_size,
+				double theta,  double lambda, double bl_min, double bl_max,
+				int threads_per_block){
 
   //For Benchmarking.
   
@@ -957,24 +861,10 @@ __host__ cudaError_t wprojection_CUDA(const char* visfile, const char* wkernfile
     std::cout << "Failed to Load W-Kernels \n";
     return error;
   }
-
-  
-
-  //Allocate our main grid.
-  
-  int total_gs = grid_size * grid_size;
-  
-  cuDoubleComplex *grid_dev, *grid_host;
-  cudaError_check(cudaMalloc((void **)&grid_dev, total_gs * sizeof(cuDoubleComplex)));
-  cudaError_check(cudaMallocHost((void **)&grid_host, total_gs * sizeof(cuDoubleComplex)));
-
-
-  
-  //int blocks = total_gs / 256;
-
+    
   //Weight visibilities
 
-  weight((unsigned int *)grid_host, grid_size, theta, vis_dat);
+  weight((unsigned int *)gridh, grid_size, theta, vis_dat);
     
   std::cout << "Inititalise scatter gridder... \n";
 
@@ -985,10 +875,10 @@ __host__ cudaError_t wprojection_CUDA(const char* visfile, const char* wkernfile
   double3 v_rng = {-10e100,10e100,0};
   double3 w_rng = {-10e100,10e100,0};
 
-  //scatter_grid_kernel_flat <<< 16, 32 >>> (flat_vis_dat, wkern_dat, grid_dev, wkern_dat->size_x,
+  //scatter_grid_kernel_flat <<< 16, 32 >>> (flat_vis_dat, wkern_dat, grid, wkern_dat->size_x,
   //					  grid_size, grid_size, wkern_dat->w_step, theta, 0, 0, 0);
   //
-  scatter_grid_kernel <<< 16 , 32 >>> (vis_dat,wkern_dat, grid_dev, wkern_dat->size_x,
+  scatter_grid_kernel <<< 16 , 32 >>> (vis_dat,wkern_dat, grid, wkern_dat->size_x,
 				       grid_size,wkern_dat->w_step, theta, 0, 0, 0, u_rng, v_rng, w_rng);
   cudaEventCreate(&stop);
   cudaEventRecord(stop, 0);
@@ -1004,85 +894,22 @@ __host__ cudaError_t wprojection_CUDA(const char* visfile, const char* wkernfile
   
   dim3 dimBlock(fft_bs,fft_bs);
   dim3 dimGrid(fft_gs,fft_gs);
-  fft_shift_kernel <<< dimBlock, dimGrid >>> (grid_dev, grid_size);
-  
-
-    //Transfer back to host.
-  cudaError_check(cudaMemcpy(grid_host, grid_dev, total_gs * sizeof(cuDoubleComplex),
-			     cudaMemcpyDeviceToHost));
-
-
-
-//Write Image to disk on host.
-
-  std::ofstream image_pref ("pre_fft.out", std::ofstream::out | std::ofstream::binary);
-  std::cout << "Writing Image to File... \n";
-
-  double *row;
-  cudaError_check(cudaMallocHost(&row, grid_size * sizeof(double)));
-
-      
-  for(int i = 0; i < grid_size; ++i){
-
-    for(int j = 0; j< grid_size; ++j){
-      
-      row[j] = cuCreal(grid_host[i*grid_size + j]);
-    }
-    image_pref.write((char*)row, sizeof(double) * grid_size);
-  }
-  image_pref.close();
-
-
-  
-  //fft_shift(grid_host, grid_size);
-  make_hermitian(grid_host, grid_size);
-
-
-  
-  cudaError_check(cudaMemcpy(grid_dev, grid_host, total_gs * sizeof(cuDoubleComplex),
-			     cudaMemcpyHostToDevice));
-  
+  fft_shift_kernel <<< dimBlock, dimGrid >>> (grid, grid_size);
   std::cout << "Executing iFFT back to Image Space... \n";
   
   cufftHandle fft_plan;
   cuFFTError_check(cufftPlan2d(&fft_plan,grid_size,grid_size,CUFFT_Z2Z));
-  cuFFTError_check(cufftExecZ2Z(fft_plan, grid_dev, grid_dev, CUFFT_INVERSE));
-  fft_shift_kernel <<< dimBlock, dimGrid >>> (grid_dev, grid_size);
-  //Transfer back to host.
-  cudaError_check(cudaMemcpy(grid_host, grid_dev, total_gs * sizeof(cuDoubleComplex),
-			     cudaMemcpyDeviceToHost));
+  cuFFTError_check(cufftExecZ2Z(fft_plan, grid, grid, CUFFT_INVERSE));
+  fft_shift_kernel <<< dimBlock, dimGrid >>> (grid, grid_size);
 
-
-  //Write Image to disk on host.
-
-  std::ofstream image_f ("image.out", std::ofstream::out | std::ofstream::binary);
-  std::cout << "Writing Image to File... \n";
-
-  //double *row;
-  //cudaError_check(cudaMallocHost(&row, grid_size * sizeof(double)));
-    for(int i = 0; i < grid_size; ++i){
-
-    for(int j = 0; j< grid_size; ++j){
-
-      row[j] = cuCreal(grid_host[i*grid_size + j]);
-    }
-    image_f.write((char*)row, sizeof(double) * grid_size);
-  }
-
-  image_f.close();
-
-  //Check it actually ran...
-  cudaError_t err = cudaGetLastError();
-  
-
-  std::cout << "Error: " << cudaGetErrorString(err) << "\n";
-  return err;
+  return error;
 }
 
 // W-Project on flat SoA Dataset.
-__host__ cudaError_t wprojection_CUDA_flat(const char* visfile, const char* wkernfile, int grid_size,
-				      double theta,  double lambda, double bl_min, double bl_max,
-				      int threads_per_block){
+__host__ cudaError_t wproj_CUDA_flat(const char* visfile, const char* wkernfile,
+				     cuDoubleComplex *grid, cuDoubleComplex *gridh, int grid_size,
+				     double theta,  double lambda, double bl_min, double bl_max,
+				     int threads_per_block){
 
   cudaDeviceSetCacheConfig(cudaFuncCachePreferL1);
   //For Benchmarking.
@@ -1119,22 +946,18 @@ __host__ cudaError_t wprojection_CUDA_flat(const char* visfile, const char* wker
   
   int total_gs = grid_size * grid_size;
   
-  cuDoubleComplex *grid_dev, *grid_host;
-  cudaError_check(cudaMalloc((void **)&grid_dev, total_gs * sizeof(cuDoubleComplex)));
-  cudaError_check(cudaMallocHost((void **)&grid_host, total_gs * sizeof(cuDoubleComplex)));
-
   //Make sure our grids are all zero.
   
-  cudaError_check(cudaMemset(grid_dev, 0, total_gs * sizeof(cuDoubleComplex)));
-  cudaError_check(cudaMemset(grid_host, 0, total_gs * sizeof(cuDoubleComplex)));
+  cudaError_check(cudaMemset(grid, 0, total_gs * sizeof(cuDoubleComplex)));
 
-  
+
+  std::cout << "Bin Data: \n";
   struct flat_vis_data *flat_vis_dat;
   cudaError_check(cudaMallocHost((void**)&flat_vis_dat, sizeof(struct flat_vis_data)));
 
   //Flatten the visibilities and weight them.
   flatten_visibilities_CUDA(vis_dat,flat_vis_dat);
-  weight_flat((unsigned int *)grid_host, grid_size, theta, flat_vis_dat);
+  weight_flat((unsigned int *)gridh, grid_size, theta, flat_vis_dat);
 
 
   
@@ -1153,7 +976,7 @@ __host__ cudaError_t wprojection_CUDA_flat(const char* visfile, const char* wker
   cudaEventCreate(&start);
   cudaEventRecord(start, 0);
 
-  scatter_grid_kernel_flat <<< 512, 256 >>> (vis_bins, wkern_dat, grid_dev, wkern_dat->size_x,
+  scatter_grid_kernel_flat <<< 512, 256 >>> (vis_bins, wkern_dat, grid, wkern_dat->size_x,
 					      grid_size, wkern_dat->w_step, theta, 0, 0, 0,
 					      u_rng, v_rng, w_rng);
   
@@ -1174,76 +997,13 @@ __host__ cudaError_t wprojection_CUDA_flat(const char* visfile, const char* wker
   
   dim3 dimBlock(fft_bs,fft_bs);
   dim3 dimGrid(fft_gs,fft_gs);
-
-  //Transfer back to host.
-  cudaError_check(cudaMemcpy(grid_host, grid_dev, total_gs * sizeof(cuDoubleComplex),
-			     cudaMemcpyDeviceToHost));
-
-
-
-  //Write Grid to disk on host.
-
-  std::ofstream image_pref ("pre_fft.out", std::ofstream::out | std::ofstream::binary);
-  std::cout << "Writing Image to File... \n";
-  
-  double *row;
-  cudaError_check(cudaMallocHost(&row, grid_size * sizeof(double)));
-
-     
-  for(int i = 0; i < grid_size; ++i){
-
-    for(int j = 0; j< grid_size; ++j){
-      
-      row[j] = cuCreal(grid_host[i*grid_size + j]);
-    }
-    image_pref.write((char*)row, sizeof(double) * grid_size);
-  }
-  image_pref.close();
-
-
-  
-  
-  
-  make_hermitian(grid_host, grid_size);
-
-
-  
-  cudaError_check(cudaMemcpy(grid_dev, grid_host, total_gs * sizeof(cuDoubleComplex),
-  			     cudaMemcpyHostToDevice));
-  fft_shift_kernel <<< dimBlock, dimGrid >>> (grid_dev, grid_size);
+  fft_shift_kernel <<< dimBlock, dimGrid >>> (grid, grid_size);
   std::cout << "Executing iFFT back to Image Space... \n";
   
   cufftHandle fft_plan;
   cuFFTError_check(cufftPlan2d(&fft_plan,grid_size,grid_size,CUFFT_Z2Z));
-  cuFFTError_check(cufftExecZ2Z(fft_plan, grid_dev, grid_dev, CUFFT_INVERSE));
-  fft_shift_kernel <<< dimBlock, dimGrid >>> (grid_dev, grid_size);
-  //Transfer back to host.
-  cudaError_check(cudaMemcpy(grid_host, grid_dev, total_gs * sizeof(cuDoubleComplex),
-			     cudaMemcpyDeviceToHost));
-
-
-  //Write Image to disk on host.
-
-  std::ofstream image_f ("image.out", std::ofstream::out | std::ofstream::binary);
-  std::cout << "Writing Image to File... \n";
-
-  //  fft_shift(grid_host,grid_size);
-  for(int i = 0; i < grid_size; ++i){
-
-    for(int j = 0; j< grid_size; ++j){
-
-      row[j] = cuCreal(grid_host[i*grid_size + j]);
-    }
-    image_f.write((char*)row, sizeof(double) * grid_size);
-  }
-
-  image_f.close();
-
-  //Check it actually ran...
-  cudaError_t err = cudaGetLastError();
-  std::cout << "Error: " << cudaGetErrorString(err) << "\n";
-
-  cudaError_check(cudaDeviceReset());
+  cuFFTError_check(cufftExecZ2Z(fft_plan, grid, grid, CUFFT_INVERSE));
+  fft_shift_kernel <<< dimBlock, dimGrid >>> (grid, grid_size);
   
-  return err;
+  return error;
 } 
