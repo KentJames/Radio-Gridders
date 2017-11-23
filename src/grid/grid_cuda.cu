@@ -205,8 +205,8 @@ __global__ void fresnel_subimg_mul(cuDoubleComplex *subgrid,
 
   if(x < n && y < n){
 
-    cuDoubleComplex wtrans = cu_cpow(fresnel[y * n + x], wp);
-    subimg[y * n + x] = cuCmul(fresnel[y * n + x], subimg[y * n +x]);
+    cuDoubleComplex wtrans = cu_cpow(fresnel[y * n + x], make_cuDoubleComplex(wp,0.0));
+    subimg[y * n + x] = cuCmul(fresnel[y * n + x], subimg[y * n + x]);
     subimg[y * n + x] = cuCadd(subimg[y * n + x], subgrid[y * n + x]);
     subgrid[y * n + x] = make_cuDoubleComplex(0.0,0.0);
   }
@@ -220,16 +220,13 @@ __global__ void add_subs2main_kernel(cuDoubleComplex *main, cuDoubleComplex *sub
 
   int x = (blockDim.x * blockIdx.x + threadIdx.x) - main_size/2;
   int y = (blockDim.y * blockIdx.y + threadIdx.y) - main_size/2;
-  //  int ts = chunk_count * chunk_count  * sub_size * sub_size;
+  
   for(int cy = 0; cy < chunk_count; ++cy){
     for(int cx = 0; cx < chunk_count; ++cx){
       
       int x_min = chunk_size*cx - main_size/2; //- sub_size/2;
       int y_min = chunk_size*cy - main_size/2; //- sub_size/2;
       
-      //int x_max = sub_*(cx+1);
-      //int y_max = sub_size*(cy+1);
-
       int x0 = x_min - sub_margin/2;
       int y0 = y_min - sub_margin/2;
 
@@ -243,14 +240,13 @@ __global__ void add_subs2main_kernel(cuDoubleComplex *main, cuDoubleComplex *sub
       cuDoubleComplex *main_mid = main + (main_size + 1)*main_size/2;
       if(y>= y0 && y < y1 && x>= x0 && x < x1){
 	
-	int y_s = y - y_min + sub_margin / 2;
-	int x_s = x - x_min + sub_margin / 2;
-	main_mid[y*main_size + x] = cuCadd(main_mid[y*main_size+x],
-				       (subs+(((cy*chunk_count)+cx)*sub_size*sub_size))
-					   [y_s*sub_size + x_s]);
-	main_mid[y*main_size + x] = cuCdiv(main_mid[y*main_size + x],
-					   make_cuDoubleComplex(sub_size * sub_size,
-								0.0));
+	int y_s = y - y_min + sub_margin/2;
+	int x_s = x - x_min + sub_margin/2;
+	cuDoubleComplex *sub_offset = subs + (((cy * chunk_count) + cx) * sub_size * sub_size);
+	main_mid[y * main_size + x] = cuCadd(main_mid[y * main_size + x],
+					     sub_offset[y_s*sub_size + x_s]);
+	main_mid[y * main_size + x] = cuCdiv(main_mid[y * main_size + x],
+					     make_cuDoubleComplex(sub_size * sub_size, 0.0));
 	//Not sure if this is good style. 1) Calculate offset. 2) Dereference via array notation
       }
     }
@@ -261,8 +257,12 @@ __global__ void add_subs2main_kernel(cuDoubleComplex *main, cuDoubleComplex *sub
 __global__ void w0_transfer_kernel(cuDoubleComplex *grid, cuDoubleComplex *base, int exp, int size){
 
   int x = blockIdx.x * blockDim.x + threadIdx.x;
+  int y = blockIdx.y * blockDim.y + threadIdx.y;
 
-  if(x<size*size) grid[x] = cuCdiv(grid[x],cu_cpow(base[x],exp));
+  if(x<size && y<size){
+    cuDoubleComplex wt0 = cu_cpow(base[y * size + x], make_cuDoubleComplex(exp, 0.0));
+    grid[y * size + x] = cuCdiv(grid[y * size + x],wt0);
+  }
 }
 
 //Shifts a 2D grid to be in the right place for an FFT. 
@@ -523,7 +523,6 @@ __host__ cudaError_t wtowers_CUDA_flat(const char* visfile, const char* wkernfil
 
   //API Variables.
   cudaError_t error = (cudaError_t)0;
-  cudaDeviceSetCacheConfig(cudaFuncCachePreferL1);
   //Subgrid arithmetic.
   assert( grid_size % subgrid_size == 0);  
   int chunk_size = subgrid_size - subgrid_margin;
@@ -579,19 +578,14 @@ __host__ cudaError_t wtowers_CUDA_flat(const char* visfile, const char* wkernfil
   weight_flat((unsigned int *)gridh, grid_size, theta, flat_vis_dat);
   cudaError_check(cudaMemset(grid,0.0,total_gs * sizeof(cuDoubleComplex)));
   bin_flat_uv_bins(vis_bins, flat_vis_dat, chunk_count_1d, wincrement, theta, grid_size, chunk_size, &wp_min, &wp_max);
+  free_flat_visibilities_CUDAh(flat_vis_dat, 1);
   bin_flat_w_vis(vis_bins, vis_bins_w, vis_w_max, vis_w_min, wincrement, chunk_count_1d);
-  // Work out our minimum and maximum w-planes.
-
+  free_flat_visibilities_CUDAd(vis_bins, chunk_count_1d * chunk_count_1d);
   struct flat_vis_data *flat_vis_dat_chunked;
   cudaError_check(cudaMallocManaged((void **)&flat_vis_dat_chunked, sizeof(struct flat_vis_data) * total_chunks * wp_tot * vis_blocks));
   for(int i = 0; i < total_chunks * wp_tot; ++i){
     bin_flat_visibilities(flat_vis_dat_chunked+vis_blocks*i, vis_bins_w+i, vis_blocks);
-  }
-
-  //Do some cleanup:
-  
-  free_flat_visibilities_CUDAh(flat_vis_dat, 1);
-  free_flat_visibilities_CUDAd(vis_bins, chunk_count_1d * chunk_count_1d);
+  }  
   free_flat_visibilities_CUDAd(vis_bins_w, chunk_count_1d * chunk_count_1d * wp_tot);
 
   //Create the fresnel interference pattern for the W-Dimension
@@ -607,7 +601,9 @@ __host__ cudaError_t wtowers_CUDA_flat(const char* visfile, const char* wkernfil
       double l = theta * (double)(x - subgrid_size / 2) / subgrid_size;
       double m = theta * (double)(y - subgrid_size / 2) / subgrid_size;
       double ph = wincrement * (1 - sqrt(1 - l*l - m*m));
+      //wtransfer[y * subgrid_size + x] = make_cuDoubleComplex(1.0,0.0);
       cuDoubleComplex wtrans = make_cuDoubleComplex(0.0, 2 * M_PI * ph);
+      //wtransfer[y * subgrid_size + x] = wtrans;
       wtransfer[y * subgrid_size + x] = cu_cexp_d(wtrans);
     }
   }
@@ -635,9 +631,7 @@ __host__ cudaError_t wtowers_CUDA_flat(const char* visfile, const char* wkernfil
 
     //Assign FFT Plan to each stream
     cuFFTError_check(cufftPlan2d(&subgrid_plans[i],subgrid_size,subgrid_size,CUFFT_Z2Z));
-    cuFFTError_check(cufftSetStream(subgrid_plans[i], streams[i]));
-
-    
+    cuFFTError_check(cufftSetStream(subgrid_plans[i], streams[i]));  
   }
 
   //Our FFT plan for our final transform.
@@ -648,8 +642,8 @@ __host__ cudaError_t wtowers_CUDA_flat(const char* visfile, const char* wkernfil
   int fft_bs = subgrid_size/fft_gs;
   dim3 dimGrid(fft_bs,fft_bs);
   dim3 dimBlock(fft_gs,fft_gs);
-  dim3 dimBlock_main(16,16);
-  dim3 dimGrid_main(128,128);
+  dim3 dimBlock_main(32,32);
+  dim3 dimGrid_main(64,64);
 
   int last_wp = wp_min;
   // Lets get gridding!
@@ -690,7 +684,7 @@ __host__ cudaError_t wtowers_CUDA_flat(const char* visfile, const char* wkernfil
 	 u_mid, v_mid, w_mid);
       cuFFTError_check(cufftExecZ2Z(subgrid_plans[chunk], subgrids+subgrid_offset, subgrids+subgrid_offset, CUFFT_INVERSE));
       fresnel_subimg_mul <<< dimGrid, dimBlock, 0, streams[chunk] >>> (subgrids+subgrid_offset, wtransfer, subimgs+subgrid_offset, subgrid_size, last_wp - wp);
-      cudaError_check(cudaMemsetAsync(subgrids+subgrid_offset, 0.0, subgrid_mem_size, streams[chunk]));
+      //cudaError_check(cudaMemsetAsync(subgrids+subgrid_offset, 0.0, subgrid_mem_size, streams[chunk]));
       last_wp = wp;
     }
        
@@ -709,7 +703,7 @@ __host__ cudaError_t wtowers_CUDA_flat(const char* visfile, const char* wkernfil
   
   
   add_subs2main_kernel <<< dimGrid_main, dimBlock_main >>> (grid, subimgs, grid_size, subgrid_size,
-  					  subgrid_margin, chunk_count_1d, chunk_size);
+  					  subgrid_margin, chunk_count_1d, chunk_size);  
   fft_shift_kernel <<< dimGrid_main, dimBlock_main >>> (grid, grid_size);
   cuFFTError_check(cufftExecZ2Z(grid_plan, grid, grid, CUFFT_INVERSE));
 

@@ -68,6 +68,11 @@ __device__ inline double atomicAdd(double* address, double val)
 // Complex functions that I wished were implemented...
 // Sometimes I feel NVIDIA's Complex library is a bit half finished.
 
+__host__ __device__ inline double cu_arg (cuDoubleComplex z){
+  return atan2(z.y,z.x);
+}
+
+
 __host__ __device__ inline cuDoubleComplex cu_cexp_d (cuDoubleComplex z){
 
   cuDoubleComplex res;
@@ -80,7 +85,7 @@ __host__ __device__ inline cuDoubleComplex cu_cexp_d (cuDoubleComplex z){
 }
 
 //Stolen from Peter Wortmann (who stole it from Stack Overflow)
-__host__ __device__ inline cuDoubleComplex cu_cpow(cuDoubleComplex base, int exp){
+__host__ __device__ inline cuDoubleComplex cu_cipow(cuDoubleComplex base, int exp){
 
   cuDoubleComplex result = make_cuDoubleComplex(1.0,1.0);
   //Can't recurse on a device function!!!
@@ -93,6 +98,39 @@ __host__ __device__ inline cuDoubleComplex cu_cpow(cuDoubleComplex base, int exp
     base = cuCmul(base,base);
   }
   return result;
+}
+
+//libc version. Modified for CUDA.
+__host__ __device__ inline cuDoubleComplex cu_cpow(cuDoubleComplex base, cuDoubleComplex z){
+
+  cuDoubleComplex result = make_cuDoubleComplex(1.0,1.0);
+  double x, y, r, theta, absa, arga;
+
+  x = z.x;
+  y = z.y;
+  absa = cuCabs(base);
+  if(absa == 0.0){
+    result = make_cuDoubleComplex(0.0,0.0);
+    return result;
+  }
+
+  arga = cu_arg(base);
+  r = pow(absa, x);
+  theta = x * arga;
+
+  if(y != 0.0){
+    double ar = -y * arga;
+    double er = exp(ar);
+    r = r * er;
+    theta = theta + y * log(absa);
+
+  }
+
+  result = make_cuDoubleComplex(r * cos(theta), r * sin(theta));
+  return result;
+    
+  
+  
 }
 
 
