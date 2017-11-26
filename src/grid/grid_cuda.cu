@@ -65,7 +65,7 @@ __device__ void scatter_grid_point_flat(struct flat_vis_data *vis, // Our bins o
     //double u = vis->u[vi];
     //double v = vis->v[vi];
     double w = vis->w[vi] - offset_w;
-    int w_plane = fabs((w - wkern->w_min) / (wkern->w_step + .5));
+    int w_plane = floor((w - wkern->w_min) / wkern->w_step + .5);
     int grid_offset, sub_offset;
     frac_coord_flat(subgrid_size, wkern->size_x, wkern->oversampling,
 		    theta, vis, vi, offset_u, offset_v, &grid_offset, &sub_offset);
