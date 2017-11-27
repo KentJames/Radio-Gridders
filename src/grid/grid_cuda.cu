@@ -24,7 +24,7 @@
 //From Kyrills implementation in SKA/RC
 __device__ void scatter_grid_add(cuDoubleComplex *uvgrid, int grid_size, int grid_pitch,
 					int grid_point_u, int grid_point_v, cuDoubleComplex sum){
-  
+
   // Atomically add to grid. This is the bottleneck of this kernel.
   if (grid_point_u < 0 || grid_point_u >= grid_size ||
       grid_point_v < 0 || grid_point_v >= grid_size)
@@ -54,16 +54,14 @@ __device__ void scatter_grid_point_flat(struct flat_vis_data *vis, // Our bins o
   int grid_point_u = myU, grid_point_v = myV;
   cuDoubleComplex sum  = make_cuDoubleComplex(0.0,0.0);
 
-  short supp = short(wkern->size_x);
+  int supp = wkern->size_x;
   
   //  for (int i = 0; i < visibilities; i++) {
   int vi;
 
   //if (vis -> number_of_vis < 1) return;
   for (vi = 0; vi < vis->number_of_vis; ++vi){
-    
-    //double u = vis->u[vi];
-    //double v = vis->v[vi];
+
     double w = vis->w[vi] - offset_w;
     int w_plane = floor((w - wkern->w_min) / wkern->w_step + .5);
     int grid_offset, sub_offset;
@@ -73,12 +71,12 @@ __device__ void scatter_grid_point_flat(struct flat_vis_data *vis, // Our bins o
     int v = grid_offset / subgrid_size;
 
     // Determine convolution point. This is basically just an
-    // optimised way to calculate
-    //   myConvU = (myU - u) % max_supp
-    //   myConvV = (myV - v) % max_supp
-    //	int2 xy = getcoords_xy(u,v,subgrid_size,theta,max_supp);
+    // optimised way to calculate.
+    //int myConvU = myU - u;
+    //int myConvV = myV - v;
     int myConvU = (u - myU) % max_supp;
     int myConvV = (v - myV) % max_supp;
+    
     if (myConvU < 0) myConvU += max_supp;
     if (myConvV < 0) myConvV += max_supp;
 
@@ -99,10 +97,10 @@ __device__ void scatter_grid_point_flat(struct flat_vis_data *vis, // Our bins o
     }
     //TODO: Re-do the w-kernel/gcf for our data.
     //	cuDoubleComplex px;
-    cuDoubleComplex px = *(cuDoubleComplex*)&wkern->kern_by_w[w_plane].data[sub_offset + myConvU * supp + myConvV];	
+    cuDoubleComplex px = *(cuDoubleComplex*)&wkern->kern_by_w[w_plane].data[sub_offset + myConvV * supp + myConvU];	
     // Sum up
     cuDoubleComplex vi_v = *(cuDoubleComplex*)&vis->vis[vi];
-    sum = cuCfma(px, vi_v, sum);   
+    sum = cuCfma(cuConj(px), vi_v, sum);   
   }
   // Add remaining sum to grid
   scatter_grid_add(uvgrid, subgrid_size, subgrid_size, grid_point_u, grid_point_v, sum);
@@ -142,7 +140,7 @@ __device__ void scatter_grid_point(struct vis_data *bin, // Our bins of UV Data
 	//	int u = (int)uvw_lambda(bl_d, time, freq, 0);
 	//int v = (int)uvw_lambda(bl_d, time, freq, 1);
 	double w = uvw_lambda(bl_d, time, freq, 2) - offset_w;
-	int w_plane = fabs((w - wkern->w_min) / (wkern->w_step + .5));
+	int w_plane = floor((w - wkern->w_min) / wkern->w_step + .5);
 	int grid_offset, sub_offset;
 	frac_coord(subgrid_size, wkern->size_x, wkern->oversampling,
 		   theta, bl_d, time, freq, offset_u, offset_v, &grid_offset, &sub_offset);
@@ -173,13 +171,13 @@ __device__ void scatter_grid_point(struct vis_data *bin, // Our bins of UV Data
 	  sum = make_cuDoubleComplex(0.0, 0.0);
 	  grid_point_u = myGridU;
 	  grid_point_v = myGridV;
-	  }
+	}
 	//TODO: Re-do the w-kernel/gcf for our data.
 	//	cuDoubleComplex px;
-	cuDoubleComplex px = *(cuDoubleComplex*)&wkern->kern_by_w[w_plane].data[sub_offset + myConvU * supp + myConvV];	
-	// Sum up
+	cuDoubleComplex px = *(cuDoubleComplex*)&wkern->kern_by_w[w_plane].data[sub_offset + myConvV * supp + myConvU];	
+	// Sum up.
 	cuDoubleComplex vi = *(cuDoubleComplex*)&bl_d->vis[time*bl_d->freq_count+freq];
-	sum = cuCfma(px, vi, sum);
+	sum = cuCfma(cuConj(px), vi, sum);
       }
     }
   }
@@ -283,8 +281,7 @@ __global__ void fft_shift_kernel(cuDoubleComplex *grid, int size){
 }
 
 //This is our Romein-style scatter gridder. Works on flat visibility data.
-__global__ void scatter_grid_kernel_flat(
-					 struct flat_vis_data *vis, // No. of visibilities
+__global__ void scatter_grid_kernel_flat(struct flat_vis_data *vis, // No. of visibilities
 					 struct w_kernel_data *wkern, // No. of wkernels
 					 cuDoubleComplex *uvgrid, //Our UV-Grid
 					 int max_support, //  Convolution size

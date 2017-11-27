@@ -68,12 +68,12 @@ __device__ inline double atomicAdd(double* address, double val)
 // Complex functions that I wished were implemented...
 // Sometimes I feel NVIDIA's Complex library is a bit half finished.
 
-__host__ __device__ inline double cu_arg (cuDoubleComplex z){
+__host__ __device__ inline double cu_arg(cuDoubleComplex z){
   return atan2(z.y,z.x);
 }
 
 
-__host__ __device__ inline cuDoubleComplex cu_cexp_d (cuDoubleComplex z){
+__host__ __device__ inline cuDoubleComplex cu_cexp_d(cuDoubleComplex z){
 
   cuDoubleComplex res;
   double t = exp (z.x);
@@ -422,9 +422,9 @@ __host__ inline void bin_flat_w_vis(struct flat_vis_data *vis_bins, //Our (fille
     for(int cxi = 0; cxi < chunk_count; ++cxi){
 
       struct flat_vis_data *uv_bin = &vis_bins[cyi * chunk_count + cxi];
-      for(int i = 0; i<uv_bin->number_of_vis; ++i){
+      for(int i = 0; i < uv_bin->number_of_vis; ++i){
 	double w = uv_bin->w[i];
-	int wp = floor((w + abs(w_min)) / wincrement + 0.5);
+	int wp = floor((w - w_min) / wincrement + 0.5);
 	//	int wp = abs((w / wincrement + 0.5) + abs(wp_min));
 	++bin_chunk_count[(cyi * (chunk_count * wp_tot)) + (cxi * wp_tot) + wp];
       }
@@ -456,7 +456,7 @@ __host__ inline void bin_flat_w_vis(struct flat_vis_data *vis_bins, //Our (fille
 	double v = uv_bin->v[vi];
 	double w = uv_bin->w[vi];
 	double _Complex visl = uv_bin->vis[vi];
-	int wp = floor((w + abs(w_min)) / wincrement + 0.5);
+	int wp = floor((w - w_min) / wincrement + 0.5);
 		//	int wp = abs((w / wincrement + 0.5) + abs(wp_min));
 	  //	int wp = abs((w - w_min) / (wincrement + 0.5));
 
