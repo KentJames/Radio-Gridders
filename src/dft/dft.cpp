@@ -38,13 +38,12 @@ void showHelp(){
   std::cout<<"\t-blocks              Number of CUDA Blocks\n";
   std::cout<<"\t-threadblock         Number of CUDA Threads per Block\n";
   std::cout<<"\t-device              Device to Execute On (Int)\n";
+  std::cout<<"\t-flat                Flattens Hierarchical Dataset\n";
   std::cout<<"\n\n\n";
 }
 
 int main (int argc, char **argv) {
 
-
-  
   std::cout << "CUDA System Information: \n\n";
   int numberofgpus;
 
@@ -162,7 +161,7 @@ int main (int argc, char **argv) {
   //File I/O
 
   
-  int grid_size = floor(lambda * theta);
+  int grid_size = floor(lambda * theta + 0.5);
 
   const char* visfile_c = visfile;
 
@@ -171,9 +170,14 @@ int main (int argc, char **argv) {
   //May as well allocate our host image now for when we move it back.
   image_host = (cuDoubleComplex*)malloc(grid_size * grid_size * sizeof(cuDoubleComplex));
 
-  image_dft_host(visfile_c, grid_size, theta, lambda, bl_min, bl_max,
-		 cuda_blocks, cuda_threads_block);
 
+  if(checkCmdLineFlag(argc, (const char **) argv, "flat")){
+    image_dft_host_flat(visfile_c, grid_size, theta, lambda, bl_min, bl_max,
+			cuda_blocks, cuda_threads_block);
+  } else {
+    image_dft_host(visfile_c, grid_size, theta, lambda, bl_min, bl_max,
+		   cuda_blocks, cuda_threads_block);
+  }
   
 
 

@@ -19,8 +19,6 @@
         Device Functions
  *****************************/
 
-
-
 //From Kyrills implementation in SKA/RC
 __device__ void scatter_grid_add(cuDoubleComplex *uvgrid, int grid_size, int grid_pitch,
 					int grid_point_u, int grid_point_v, cuDoubleComplex sum){
