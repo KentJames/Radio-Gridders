@@ -562,7 +562,7 @@ __host__ cudaError_t wtowers_CUDA_flat(const char* visfile, const char* wkernfil
   wp_min = (int) floor(vis_w_min / wincrement + 0.5);
   wp_max = (int) floor(vis_w_max / wincrement + 0.5);
   std::cout << "Our W-Plane Min/Max: " << wp_min << " " << wp_max << "\n";
-  int wp_tot = abs(wp_min - wp_max);
+  int wp_tot = abs(wp_min - wp_max) + 1;
   std::cout << "WP_TOT: " << wp_tot << "\n";
   
   int vis_blocks=128;
