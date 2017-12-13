@@ -37,7 +37,7 @@ __device__ cuDoubleComplex calculate_dft_sum_flat(struct flat_vis_data *vis, dou
 
     double subang1 = l * u;
     double subang2 = m * v;
-    double subang3 = (sqrtf(1-l*l-m*m)-1) * w;
+    double subang3 = (1-sqrt(1-l*l-m*m)) * w;
 
     double angle = 2 * M_PI * (subang1 + subang2 + subang3);
 
@@ -72,7 +72,7 @@ __device__ cuDoubleComplex calculate_dft_sum(struct vis_data *vis, double l, dou
 	//nvcc should optimise this section.
 	double subang1 = l * u;
 	double subang2 = m * v;
-	double subang3 = (sqrt(1-l*l-m*m)-1) * w;
+	double subang3 = (1-sqrt(1-l*l-m*m)) * w;
 	double angle = 2 * M_PI * (subang1 + subang2 + subang3);
 
 	double real_p = cuCreal(visibility) * cos(angle) + cuCimag(visibility) * sin(angle);
@@ -80,9 +80,6 @@ __device__ cuDoubleComplex calculate_dft_sum(struct vis_data *vis, double l, dou
 
 	//Add these to our grid_point so far.
 	grid_point = cuCadd(grid_point, make_cuDoubleComplex(real_p, complex_p));
-	
-							       
-
       }
     }
   }
@@ -94,15 +91,15 @@ __device__ cuDoubleComplex calculate_dft_sum(struct vis_data *vis, double l, dou
 
 //Executes a direct DFT from a given visibility dataset.
 __global__ void image_dft(struct vis_data *vis, cuDoubleComplex *uvgrid,
-			  int grid_size, double lambda){
+			  int grid_size, double lambda, double theta){
 
   int idx = threadIdx.x + blockIdx.x * blockDim.x;
   
-  int y = floor( (double)(idx / grid_size) ); //Typecast makes sure that we use the CUDA floor, not the C one.
+  int y = idx / grid_size; //Typecast makes sure that we use the CUDA floor, not the C one.
   int x = idx % grid_size;
 
-  double l = ((y - grid_size / 2)/lambda) * resolution;
-  double m = ((x - grid_size / 2)/lambda) * resolution;
+  double l = theta * (y - grid_size / 2) / grid_size;
+  double m = theta * (x - grid_size / 2) / grid_size;
   
   uvgrid[idx] = calculate_dft_sum(vis, l, m);
 
@@ -170,7 +167,7 @@ __host__ cudaError_t image_dft_host(const char* visfile, int grid_size,
   cudaError_check(cudaMallocHost((void **)&grid_host, grid_size * grid_size * sizeof(cuDoubleComplex)));
   cudaEventCreate(&start);
   cudaEventRecord(start, 0);
-  image_dft <<< blocks , threads_block >>> (vis_dat, grid_dev, grid_size, lambda);
+  image_dft <<< blocks , threads_block >>> (vis_dat, grid_dev, grid_size, lambda, theta);
   cudaEventCreate(&stop);
   cudaEventRecord(stop, 0);
 
