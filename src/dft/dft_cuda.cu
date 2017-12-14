@@ -127,8 +127,8 @@ __global__ void image_dft_flat(struct flat_vis_data *vis, cuDoubleComplex *uvgri
 
 
 //This wraps the CUDA Kernel. Otherwise g++ doesn't recognise the <<< operator.
-__host__ cudaError_t image_dft_host(const char* visfile, int grid_size,
-				    double theta,  double lambda, double bl_min, double bl_max,
+__host__ cudaError_t image_dft_host(const char* visfile, cuDoubleComplex *grid_host, cuDoubleComplex *grid_dev,
+				    int grid_size, double theta,  double lambda, double bl_min, double bl_max,
 				    int blocks, int threads_block){
 
   cudaError_t error = cudaSuccess;
@@ -162,9 +162,6 @@ __host__ cudaError_t image_dft_host(const char* visfile, int grid_size,
   std::cout<<"Total Size: " << total_gs << "\n\n";
   
 
-  cuDoubleComplex *grid_dev,*grid_host;
-  cudaError_check(cudaMalloc((void **)&grid_dev, grid_size * grid_size * sizeof(cuDoubleComplex)));
-  cudaError_check(cudaMallocHost((void **)&grid_host, grid_size * grid_size * sizeof(cuDoubleComplex)));
   cudaEventCreate(&start);
   cudaEventRecord(start, 0);
   image_dft <<< blocks , threads_block >>> (vis_dat, grid_dev, grid_size, lambda, theta);
@@ -175,54 +172,16 @@ __host__ cudaError_t image_dft_host(const char* visfile, int grid_size,
   cudaEventElapsedTime(&elapsedTime, start, stop);
 
   std::cout << "Elapsed Time: " << elapsedTime << "\n";
-  
-
-
-  //  std::cout << "DFT Value: " << cuCreal(grid_dev[500]);
   std::cout << "Copying grid from device to host... \n";
   cudaError_check(cudaMemcpy(grid_host,grid_dev, grid_size * grid_size * sizeof(cuDoubleComplex),
 			     cudaMemcpyDeviceToHost));
-  //Create Image File
-
-
-  
-  std::ofstream image_f ("image.out", std::ofstream::out | std::ofstream::binary);
-  std::cout << "Writing Image to File... \n";
-  
-
-  
-
-  
-  
-  
-  //Write Image to disk on host.
-  double *row;
-  cudaError_check(cudaMallocHost(&row,grid_size * sizeof(double)));
-    
-  for(int i = 0; i < grid_size; i++){
-
-    for(int j = 0; j< grid_size; j++){
-
-      row[j] = cuCreal(grid_host[i*grid_size + j]);
-
-    }
-    image_f.write((char*)row, sizeof(double) * grid_size);
-  }
-
-  image_f.close();
-
-  //Check it actually ran...
-  cudaError_t err = cudaGetLastError();
-
-  std::cout << "Error: " << cudaGetErrorString(err) << "\n";
-  return err;
-
+  return error;
 }
 
 //This wraps the CUDA Kernel. Otherwise g++ doesn't recognise the <<< operator.
-__host__ cudaError_t image_dft_host_flat(const char* visfile, int grid_size,
-				    double theta,  double lambda, double bl_min, double bl_max,
-				    int blocks, int threads_block){
+__host__ cudaError_t image_dft_host_flat(const char* visfile, cuDoubleComplex *grid_host, cuDoubleComplex *grid_dev,
+					 int grid_size, double theta,  double lambda, double bl_min, double bl_max,
+					 int blocks, int threads_block){
 
   cudaError_t error = cudaSuccess;
 
@@ -258,10 +217,6 @@ __host__ cudaError_t image_dft_host_flat(const char* visfile, int grid_size,
 
   std::cout<<"Total Size: " << total_gs << "\n\n";
   
-
-  cuDoubleComplex *grid_dev,*grid_host;
-  cudaError_check(cudaMalloc((void **)&grid_dev, grid_size * grid_size * sizeof(cuDoubleComplex)));
-  cudaError_check(cudaMallocHost((void **)&grid_host, grid_size * grid_size * sizeof(cuDoubleComplex)));
   cudaEventCreate(&start);
   cudaEventRecord(start, 0);
   image_dft_flat <<< blocks , threads_block >>> (flat_vis_dat, grid_dev, grid_size, lambda);
@@ -272,46 +227,9 @@ __host__ cudaError_t image_dft_host_flat(const char* visfile, int grid_size,
   cudaEventElapsedTime(&elapsedTime, start, stop);
 
   std::cout << "Elapsed Time: " << elapsedTime << "\n";
-  
-
-
-  //  std::cout << "DFT Value: " << cuCreal(grid_dev[500]);
   std::cout << "Copying grid from device to host... \n";
   cudaError_check(cudaMemcpy(grid_host,grid_dev, grid_size * grid_size * sizeof(cuDoubleComplex),
 			     cudaMemcpyDeviceToHost));
-  //Create Image File
-
-
   
-  std::ofstream image_f ("image.out", std::ofstream::out | std::ofstream::binary);
-  std::cout << "Writing Image to File... \n";
-  
-
-  
-
-  
-  
-  
-  //Write Image to disk on host.
-  double *row;
-  cudaError_check(cudaMallocHost(&row,grid_size * sizeof(double)));
-    
-  for(int i = 0; i < grid_size; i++){
-
-    for(int j = 0; j< grid_size; j++){
-
-      row[j] = cuCreal(grid_host[i*grid_size + j]);
-
-    }
-    image_f.write((char*)row, sizeof(double) * grid_size);
-  }
-
-  image_f.close();
-
-  //Check it actually ran...
-  cudaError_t err = cudaGetLastError();
-
-  std::cout << "Error: " << cudaGetErrorString(err) << "\n";
-  return err;
-
+  return error;
 }

@@ -169,20 +169,45 @@ int main (int argc, char **argv) {
 
   //May as well allocate our host image now for when we move it back.
   image_host = (cuDoubleComplex*)malloc(grid_size * grid_size * sizeof(cuDoubleComplex));
-
+  cudaError_check(cudaMalloc((void **)&grid_dev, grid_size * grid_size * sizeof(cuDoubleComplex)));
 
   if(checkCmdLineFlag(argc, (const char **) argv, "flat")){
-    image_dft_host_flat(visfile_c, grid_size, theta, lambda, bl_min, bl_max,
+    image_dft_host_flat(visfile_c, image_host, grid_dev, grid_size, theta, lambda, bl_min, bl_max,
 			cuda_blocks, cuda_threads_block);
   } else {
-    image_dft_host(visfile_c, grid_size, theta, lambda, bl_min, bl_max,
+    image_dft_host(visfile_c, image_host, grid_dev, grid_size, theta, lambda, bl_min, bl_max,
 		   cuda_blocks, cuda_threads_block);
   }
   
-
-
   
+  if(checkCmdLineFlag(argc, (const char **) argv, "image")){
+    getCmdLineArgumentString(argc, (const char **) argv, "image", &image);
+    std::ofstream image_f (image, std::ofstream::out | std::ofstream::binary);
+    std::cout << "Writing Image to File... \n";
+  
+    //Write Image to disk on host.
+    double *row;
+    cudaError_check(cudaMallocHost((void **)&row,grid_size * sizeof(double)));
+    
+    for(int i = 0; i < grid_size; i++){
 
+      for(int j = 0; j< grid_size; j++){
+
+	row[j] = cuCreal(image_host[i*grid_size + j]);
+
+      }
+      image_f.write((char*)row, sizeof(double) * grid_size);
+    }
+
+    image_f.close();
+  }
+  
+  //Check it actually ran...
+  cudaError_t err = cudaGetLastError();
+
+  std::cout << "Error: " << cudaGetErrorString(err) << "\n";
+  
+  
   return 0;
 
 }
