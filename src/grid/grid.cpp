@@ -245,22 +245,24 @@ int main (int argc, char **argv) {
 
 
   //Write Image to disk on host.
+  if(checkCmdLineFlag(argc, (const char **) argv, "image")){
 
-  std::ofstream image_f ("image.out", std::ofstream::out | std::ofstream::binary);
-  std::cout << "Writing Image to File... \n";
-  double *row = (double *)malloc(sizeof(double) * grid_size);
-  //  fft_shift(grid_host,grid_size);
-  for(int i = 0; i < grid_size; ++i){
+    getCmdLineArgumentString(argc, (const char **) argv, "image", &image);
+    std::ofstream image_f (image, std::ofstream::out | std::ofstream::binary);
+    std::cout << "Writing Image to File... \n";
+    double *row = (double *)malloc(sizeof(double) * grid_size);
+    //  fft_shift(grid_host,grid_size);
+    for(int i = 0; i < grid_size; ++i){
 
-    for(int j = 0; j< grid_size; ++j){
+      for(int j = 0; j< grid_size; ++j){
 
-      row[j] = cuCreal(grid_host[i*grid_size + j]);
+	row[j] = cuCreal(grid_host[i*grid_size + j]);
+      }
+      image_f.write((char*)row, sizeof(double) * grid_size);
     }
-    image_f.write((char*)row, sizeof(double) * grid_size);
+
+    image_f.close();
   }
-
-  image_f.close();
-
   //Check it actually ran...
   cudaError_t err = cudaGetLastError();
   std::cout << "Error: " << cudaGetErrorString(err) << "\n";
