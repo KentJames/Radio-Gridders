@@ -47,6 +47,7 @@ void showHelp(){
   std::cout<<"\t-bl_min              Minimum Baseline Distance (wavelengths)\n";
   std::cout<<"\t-bl_max              Maximum Baseline Distance (wavelengths)\n";
   std::cout<<"\t-wproj               W-Projection Mode\n";
+  std::cout<<"'t-device              GPU Device to use (Default: 0)";
   std::cout<<"\n\n\n";
 }
 
@@ -97,6 +98,7 @@ int main (int argc, char **argv) {
   char *visfile = NULL;
   char *wkernfile = NULL;
   char *akernfile = NULL;
+  int dev_no=0;
 
   double bl_min = 0;
   double bl_max = 1.7976931348623158e+308 ; // By default set to double limit.
@@ -155,6 +157,13 @@ int main (int argc, char **argv) {
     lambda = getCmdLineArgumentFloat(argc, (const char **) argv, "lambda");
 
   }
+
+  if (checkCmdLineFlag(argc, (const char **)argv, "device")){
+    dev_no = getCmdLineArgumentInt(argc, (const char **) argv, "device");
+  } else { dev_no = 0; }
+
+  cudaSetDevice(dev_no);
+  
 
   if (checkCmdLineFlag(argc, (const char **) argv, "bl_min"))
     bl_min = getCmdLineArgumentInt(argc, (const char **) argv, "bl_min");
