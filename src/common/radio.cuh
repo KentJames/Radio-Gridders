@@ -483,11 +483,6 @@ __host__ inline void bin_flat_visibilities(struct flat_vis_data *vis_bins,
 
   int vis_per_block = vis->number_of_vis / blocks;
   int leftovers = vis->number_of_vis % blocks;
-
-  std::cout << "Binning Visibilities. No. of vis: " << vis->number_of_vis << " No. of Blocks: " << blocks << "\n";
-  std::cout << "Visibilities per block: " << vis_per_block << " Leftovers: " << leftovers <<"\n";
-
-  
   int i;
   for(i = 0; i < blocks-1; ++i){
     
