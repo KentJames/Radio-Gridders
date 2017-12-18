@@ -1,6 +1,6 @@
 CC = nvcc
 
-CXXFLAGS = -gencode arch=compute_35,code=sm_35
+override CXXFLAGS = -gencode arch=compute_35,code=sm_35
 
 
 
