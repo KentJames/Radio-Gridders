@@ -12,6 +12,13 @@ The imagers that this repository describes are CUDA implementations of:
 * W-Projection
 * W-Towers
 
+There is also a CPU reference in src/reference, which was written mostly by Peter Wortmann. I added some OpenMP 
+parallelisation to W-Towers. 
+
+The CPU reference has been copied from the crocodile repo, available at: https://github.com/SKA-ScienceDataProcessor/crocodile
+
+Lots of functionality is shared between this repo and crocodile so make sure to check it out.
+
 ### Discrete Fourier Transform
 
 This is the most mathematically accurate method of reconstruction the sky brightness distribution function, by summing up the contribution at each discretised part of the domain, being limited by floating point error.
@@ -92,6 +99,29 @@ An example W-Towers Gridder:
 ./grid.out -theta=0.1 -lambda=20480 -image=VLA_image.out -wkernel=../data/crocodile_data/kernels/vla_w10_static_size16.h5 \
 -vis=../data/crocodile_data/vis/vlaa_theta0.1.h5 -bl_max=10000 -subgrid=512 -margin=16 -winc=10 -flat
 ```
+
+This sets our subgrids at 512x512 with a margin o 16. The distances between floors of the towers in w is 10. 
+
+### Reference
+
+The reference gridder(make to sure to compile with ```CFLAGS+=-DOMP_TOWERS``` to use multithreading) can be used as follows:
+
+An example W-Towers gridder:
+
+``` shell
+./grid_CPU.out --theta=0.1 --lambda=20480 --image=image.out --wkernel=../data/crocodile_data/kernels/vla_w10_static_size16.h5 \
+--max-bl=10000 --subgrid=64 --margin=20 --winc=10 ../data/crocodile_data/vis/vlaa_theta0.1.h5
+```
+
+An example W-Projection gridder:
+
+``` shell
+./grid_CPU.out --theta=0.1 --lambda=20480 --image=image.out --wkernel=../data/crocodile_data/kernels/vla_w10_static_size16.h5 \
+--max-bl=10000 ../data/crocodile_data/vis/vlaa_theta0.1.h5
+```
+
+There is also a CPU DFT implementation (VERY SLOW) which is built in /bin too. Run `./dft_CPU.out --help` for usage details.
+
 
 ## Caveats
 
