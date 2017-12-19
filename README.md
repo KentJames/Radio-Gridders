@@ -128,8 +128,6 @@ There is also a CPU DFT implementation (VERY SLOW) which is built in /bin too. R
 Hopefully in future I will get to implement optimsations such as streaming to make this a production ready gridder, however for 
 now it serves (alongside the SKA/crocodile repo) as a way to compare W-Towers to other gridders.
 
-I will hopefully bring the CPU gridders in-repo too.
-
 ## License
 
 The MIT License (MIT)
