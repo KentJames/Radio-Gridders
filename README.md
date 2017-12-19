@@ -16,11 +16,13 @@ The imagers that this repository describes are CUDA implementations of:
 
 This is the most mathematically accurate method of reconstruction the sky brightness distribution function, by summing up the contribution at each discretised part of the domain, being limited by floating point error.
 
-However it is by *far* the most computationally intensive, being of O(m*n^2), and heavily bandwidth limited. On a CPU the time taken feels like waiting for the heat death of the universe. Thus a basic GPU version is presented that enables a quicker DFT, taking advantage of the GPU's parallel architecture. Contributions to each grid point are summed in a local register than added to the grid non-atomically(a single thread looks at one grid point and only that grid-point), thanks to the trivially parallelisable nature of the algorithm.
+However it is by *far* the most computationally intensive, being of O(m*n^2), and heavily bandwidth limited. A basic GPU version is presented that enables a quicker DFT, taking advantage of the GPU's parallel architecture. Contributions to each grid point are summed in a local register than added to the grid non-atomically(a single thread looks at one grid point and only that grid-point), thanks to the trivially parallelisable nature of the algorithm.
 
 ### W-Projection
 
 Originally presented by Tim Cornwell, this corrects for the W kernel in a computationally more efficient method at the expense of more error. The numerical error, compared to the DFT, still creates perfectly usable images. This method uses a convolution kernel to convolve the 3-D(u,v,w) visibility onto the 2-D (u,v) grid. Then an inverse FFT is executed to take us back to the image domain.
+
+The W-Projection kernel implemented is a reduced bandwidth scatter gridder designed originally by John Romein.
 
 ### W-Towers
 
@@ -36,6 +38,67 @@ To build the gridders, you need:
 
 Past this everything should be standard on most UNIX systems. In top level directory run `make`, or for enabled in-kernel visibility counting `make CXXFLAGS+=-D__COUNT_VIS__`.
 
+## Usage
+
+There are two datasets included in this repository under `data/crocodile_data`:
+
+* A VLA dataset with phase centre significantly away from zenith. This dataset will stress test any w-correction gridder.
+* A SKA dataset with phase centre at the zenith, simulated with OSKAR. Baselines are significantly larger than VLA.
+
+Builds are by default in bin/
+
+### DFT
+
+The DFT needs to be configured with a visibility file, a field of view size and other parameters. To get more information,
+in /bin, run:
+
+``` shell
+./dft.out --help
+```
+
+An example DFT using the repo's datasets:
+
+``` shell
+./dft.out -theta=0.1 -lambda=20480 -image=SKA_DFT.out -vis=../data/crocodile_data/vis/SKA1_Low_quick.h5 -blocks=4096 -threadblock=1024 -device=0
+```
+
+This will run a DFT on our SKA dataset, on device 0 (can just leave this out if you have one GPU)
+with a grid size of (theta \times lambda). The numbers of blocks and the numbers of threads per
+block need to be configured to allow full coverage of the grid. This can be calculated as such:
+
+No. of blocks = \frac{Grid_Size^2}{Threads Per Block}
+
+### W-Projection / W-Towers
+
+Similar to the DFT, we need a visibility file, a field of view and other parameters. To get more information, in /bin run:
+
+``` shell
+./grid.out --help
+```
+
+An example W-Projection Gridder:
+
+``` shell
+./grid.out -theta=0.1 -lambda=20480 -image=VLA_image.out -wkernel=../data/crocodile_data/kernels/vla_w10_static_size16.h5 \
+-vis=../data/crocodile_data/vis/vlaa_theta0.1.h5 -bl_max=10000 -wproj -flat
+```
+
+This creates an image from our VLA dataset, where we limit the baseline to a maximum of 10km, and we also flatten our hierarchical
+dataset (can significantly increase speed).
+
+An example W-Towers Gridder:
+
+``` shell
+./grid.out -theta=0.1 -lambda=20480 -image=VLA_image.out -wkernel=../data/crocodile_data/kernels/vla_w10_static_size16.h5 \
+-vis=../data/crocodile_data/vis/vlaa_theta0.1.h5 -bl_max=10000 -subgrid=512 -margin=16 -winc=10 -flat
+```
+
+## Caveats
+
+Hopefully in future I will get to implement optimsations such as streaming to make this a production ready gridder, however for 
+now it serves (alongside the SKA/crocodile repo) as a way to compare W-Towers to other gridders.
+
+I will hopefully bring the CPU gridders in-repo too.
 
 ## License
 
