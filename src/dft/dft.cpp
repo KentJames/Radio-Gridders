@@ -108,6 +108,13 @@ int main (int argc, char **argv) {
     getCmdLineArgumentString(argc, (const char **) argv, "vis", &visfile);
   }
 
+  if (checkCmdLineFlag(argc, (const char **) argv, "bl_min"))
+    bl_min = getCmdLineArgumentInt(argc, (const char **) argv, "bl_min");
+
+  if (checkCmdLineFlag(argc, (const char **) argv, "bl_max"))
+    bl_max = getCmdLineArgumentInt(argc, (const char **) argv, "bl_max");
+
+  
   if (checkCmdLineFlag(argc, (const char **)argv, "theta") == 0){
 
     std::cout << "No theta given!! \n";
