@@ -17,7 +17,8 @@ parallelisation to W-Towers.
 
 The CPU reference has been copied from the crocodile repo, available at: https://github.com/SKA-ScienceDataProcessor/crocodile
 
-Lots of functionality is shared between this repo and crocodile so make sure to check it out.
+Lots of functionality is shared between this repo and crocodile so make sure to check it out. The W-Kernels
+and visibilities are generated from the scripts and notebooks in that repository.
 
 ### Discrete Fourier Transform
 
@@ -121,7 +122,6 @@ An example W-Projection gridder:
 ```
 
 There is also a CPU DFT implementation (VERY SLOW) which is built in /bin too. Run `./dft_CPU.out --help` for usage details.
-
 
 ## Caveats
 
