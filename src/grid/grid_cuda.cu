@@ -67,13 +67,9 @@ __device__ void scatter_grid_point_flat(struct flat_vis_data *vis, // Our bins o
   
   int grid_point_u = myU, grid_point_v = myV;
   cuDoubleComplex sum  = make_cuDoubleComplex(0.0,0.0);
-
   int supp = wkern->size_x;
-  
-  //  for (int i = 0; i < visibilities; i++) {
   int vi;
-
-  //if (vis -> number_of_vis < 1) return;
+  
   for (vi = 0; vi < vis->number_of_vis; ++vi){
 
     double w = vis->w[vi] - offset_w;
@@ -659,21 +655,21 @@ __host__ cudaError_t wtowers_CUDA_flat(const char* visfile, const char* wkernfil
   
   int vis_blocks=128;
   cudaError_check(cudaMallocHost((void**)&flat_vis_dat, sizeof(struct flat_vis_data)));
-  cudaError_check(cudaMallocManaged((void**)&vis_bins, sizeof(struct flat_vis_data) * total_chunks));
-  cudaError_check(cudaMallocManaged((void**)&vis_bins_w, sizeof(struct flat_vis_data) * total_chunks * wp_tot));
+  cudaError_check(cudaMallocHost((void**)&vis_bins, sizeof(struct flat_vis_data) * total_chunks));
+  cudaError_check(cudaMallocHost((void**)&vis_bins_w, sizeof(struct flat_vis_data) * total_chunks * wp_tot));
   flatten_visibilities_CUDA(vis_dat, flat_vis_dat);
   weight_flat((unsigned int *)gridh, grid_size, theta, flat_vis_dat);
   cudaError_check(cudaMemset(grid,0.0,total_gs * sizeof(cuDoubleComplex)));
   bin_flat_uv_bins(vis_bins, flat_vis_dat, chunk_count_1d, wincrement, theta, grid_size, chunk_size, &wp_min, &wp_max);
   free_flat_visibilities_CUDAh(flat_vis_dat, 1);
   bin_flat_w_vis(vis_bins, vis_bins_w, vis_w_max, vis_w_min, wincrement, chunk_count_1d);
-  free_flat_visibilities_CUDAd(vis_bins, chunk_count_1d * chunk_count_1d);
+  //free_flat_visibilities_CUDAh(vis_bins, chunk_count_1d * chunk_count_1d);
   struct flat_vis_data *flat_vis_dat_chunked;
   cudaError_check(cudaMallocManaged((void **)&flat_vis_dat_chunked, sizeof(struct flat_vis_data) * total_chunks * wp_tot * vis_blocks));
   for(int i = 0; i < total_chunks * wp_tot; ++i){
     bin_flat_visibilities(flat_vis_dat_chunked+vis_blocks*i, vis_bins_w+i, vis_blocks);
   }  
-  free_flat_visibilities_CUDAd(vis_bins_w, chunk_count_1d * chunk_count_1d * wp_tot);
+  //free_flat_visibilities_CUDAd(vis_bins_w, chunk_count_1d * chunk_count_1d * wp_tot);
 
   //Create the fresnel interference pattern for the W-Dimension
   //Can make this a kernel.
@@ -765,20 +761,23 @@ __host__ cudaError_t wtowers_CUDA_flat(const char* visfile, const char* wkernfil
       double w_mid = (double)wp * wincrement;
 
       int wp_zero = wp + abs(wp_min);
-      #ifdef __COUNT_VIS__
-      scatter_grid_kernel_flat <<< vis_blocks, 128, 0, streams[chunk] >>>
-	(flat_vis_dat_chunked + chunk * wp_tot * vis_blocks + wp_zero * vis_blocks, wkern_dat, subgrids+subgrid_offset, wkern_size,
-	 subgrid_size, wkern_wstep, theta,
-	 u_mid, v_mid, w_mid, vis_count);
-      #else
-      scatter_grid_kernel_flat <<< vis_blocks, 128, 0, streams[chunk] >>>
-	(flat_vis_dat_chunked + chunk * wp_tot * vis_blocks + wp_zero * vis_blocks, wkern_dat, subgrids+subgrid_offset, wkern_size,
-	 subgrid_size, wkern_wstep, theta,
-	 u_mid, v_mid, w_mid);
-      #endif
+      struct flat_vis_data *binp = flat_vis_dat_chunked + chunk * wp_tot * vis_blocks + wp_zero * vis_blocks;
+      struct flat_vis_data *bincp = vis_bins_w + chunk * wp_tot + wp_zero;
+      if(bincp->number_of_vis){ //If no visibilities on that particular floor just skip it.
+#ifdef __COUNT_VIS__
+	scatter_grid_kernel_flat <<< vis_blocks, 128, 0, streams[chunk] >>>
+	  (binp, wkern_dat, subgrids+subgrid_offset, wkern_size,
+	   subgrid_size, wkern_wstep, theta,
+	   u_mid, v_mid, w_mid, vis_count);
+#else
+	scatter_grid_kernel_flat <<< vis_blocks, 128, 0, streams[chunk] >>>
+	  (binp, wkern_dat, subgrids+subgrid_offset, wkern_size,
+	   subgrid_size, wkern_wstep, theta,
+	   u_mid, v_mid, w_mid);
+#endif
       cuFFTError_check(cufftExecZ2Z(subgrid_plans[chunk], subgrids+subgrid_offset, subgrids+subgrid_offset, CUFFT_INVERSE));
       fresnel_subimg_mul <<< dimGrid, dimBlock, 0, streams[chunk] >>> (subgrids+subgrid_offset, wtransfer, subimgs+subgrid_offset, subgrid_size, last_wp - wp);
-      //cudaError_check(cudaMemsetAsync(subgrids+subgrid_offset, 0.0, subgrid_mem_size, streams[chunk]));
+      }
       last_wp = wp;
     }
        
