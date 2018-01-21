@@ -414,7 +414,9 @@ __host__ cudaError_t wtowers_CUDA(const char* visfile, const char* wkernfile,
   //For Benchmarking.
   cudaEvent_t start, stop;
   float elapsedTime;
-
+  size_t free_bytes;
+  size_t total_bytes;
+  
   #ifdef __COUNT_VIS__
   unsigned long long int *vis_count;
   cudaError_check(cudaMallocManaged((void **)&vis_count, sizeof(unsigned long long int)));
@@ -531,7 +533,7 @@ __host__ cudaError_t wtowers_CUDA(const char* visfile, const char* wkernfile,
 
   int wkern_size = wkern_dat->size_x;
   int wkern_wstep = wkern_dat->w_step;
-    
+  cudaError_check(cudaMemGetInfo(&free_bytes, &total_bytes));
   for(int chunk =0; chunk < total_chunks; ++chunk){
 
     int subgrid_offset = chunk * subgrid_size * subgrid_size;
@@ -587,6 +589,7 @@ __host__ cudaError_t wtowers_CUDA(const char* visfile, const char* wkernfile,
   cudaEventRecord(stop,0);
   cudaEventSynchronize(stop);
   cudaEventElapsedTime(&elapsedTime,start,stop);
+  std::cout << "Memory Usage:: Free: " << free_bytes << " Total: " << total_bytes << "\n";
   std::cout << "Scatter Gridder Elapsed Time: " << elapsedTime/1000.0 << " seconds\n";
   return error;
    
@@ -619,6 +622,9 @@ __host__ cudaError_t wtowers_CUDA_flat(const char* visfile, const char* wkernfil
   //For Benchmarking.
   cudaEvent_t start, stop;
   float elapsedTime;
+  size_t free_bytes;
+  size_t total_bytes;
+
 
   // Load visibility and w-kernel data from HDF5 files.
   struct vis_data *vis_dat;
@@ -739,7 +745,7 @@ __host__ cudaError_t wtowers_CUDA_flat(const char* visfile, const char* wkernfil
   //Record Start
   cudaEventCreate(&start);
   cudaEventRecord(start,0);
-      
+  cudaError_check(cudaMemGetInfo(&free_bytes, &total_bytes));
   for(int chunk =0; chunk < total_chunks; ++chunk){
 
     int subgrid_offset = chunk * subgrid_size * subgrid_size;
@@ -792,6 +798,7 @@ __host__ cudaError_t wtowers_CUDA_flat(const char* visfile, const char* wkernfil
   cudaEventRecord(stop,0);
   cudaEventSynchronize(stop);
   cudaEventElapsedTime(&elapsedTime,start,stop);
+  std::cout << "Memory Usage:: Free: " << free_bytes << " Total: " << total_bytes << "\n";
   std::cout << "Scatter Gridder Elapsed Time: " << elapsedTime/1000.0 << " seconds\n";
   #ifdef __COUNT_VIS__
   std::cout << "Visibilities processed: " << *vis_count << "\n";
@@ -818,7 +825,9 @@ __host__ cudaError_t wproj_CUDA(const char* visfile, const char* wkernfile,
   #endif
 
   //For Benchmarking.
-  
+  size_t free_bytes;
+  size_t total_bytes;
+
   cudaError_t error = (cudaError_t)0; //Initialise as CUDA_Success
   cudaEvent_t start, stop;
   float elapsedTime;
@@ -846,7 +855,7 @@ __host__ cudaError_t wproj_CUDA(const char* visfile, const char* wkernfile,
   //Weight visibilities
 
   weight((unsigned int *)gridh, grid_size, theta, vis_dat);
-    
+  cudaError_check(cudaMemGetInfo(&free_bytes, &total_bytes));  
   std::cout << "Inititalise scatter gridder... \n";
 
   cudaEventCreate(&start);
@@ -862,7 +871,7 @@ __host__ cudaError_t wproj_CUDA(const char* visfile, const char* wkernfile,
   cudaEventRecord(stop, 0);
   cudaEventSynchronize(stop);
   cudaEventElapsedTime(&elapsedTime,start,stop);
-
+  std::cout << "Memory Usage:: Free: " << free_bytes << " Total: " << total_bytes << "\n";
   std::cout << "Scatter Gridder Elapsed Time: " << elapsedTime/1000.0 << " seconds\n";
 
   //Shift our grid to the right position for the FFT.
@@ -890,6 +899,10 @@ __host__ cudaError_t wproj_CUDA_flat(const char* visfile, const char* wkernfile,
   
   cudaDeviceSetCacheConfig(cudaFuncCachePreferL1);
   //For Benchmarking.
+  size_t free_bytes;
+  size_t total_bytes;
+
+
   
   cudaError_t error = (cudaError_t)0;
   cudaEvent_t start, stop;
@@ -937,7 +950,7 @@ __host__ cudaError_t wproj_CUDA_flat(const char* visfile, const char* wkernfile,
   cudaError_check(cudaMallocManaged((void**)&vis_bins, sizeof(struct flat_vis_data) * 512, cudaMemAttachGlobal));
   cudaError_check(cudaMemset(vis_bins, 0, sizeof(struct flat_vis_data) * 512));
   bin_flat_visibilities(vis_bins, flat_vis_dat, 512);
-  
+  cudaError_check(cudaMemGetInfo(&free_bytes, &total_bytes));
   //Get scattering..
   std::cout << "Inititalise scatter gridder... \n";
   cudaEventCreate(&start);
@@ -954,6 +967,7 @@ __host__ cudaError_t wproj_CUDA_flat(const char* visfile, const char* wkernfile,
   cudaEventSynchronize(stop);
   cudaEventElapsedTime(&elapsedTime,start,stop);
   std::cout << "Scatter Gridder Elapsed Time: " << elapsedTime/1000.0 << " seconds\n";
+  std::cout << "Memory Usage:: Free: " << free_bytes << " Total: " << total_bytes << "\n";
   #ifdef __COUNT_VIS__
   std::cout << "Visibilities Processed: " << *vis_count << "\n";
   #endif
