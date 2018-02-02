@@ -77,7 +77,9 @@ __host__ __device__ inline cuDoubleComplex cu_cexp_d(cuDoubleComplex z){
 
   cuDoubleComplex res;
   double t = exp (z.x);
-  sincos (z.y, &res.y, &res.x);
+  res.x = cos(z.y);
+  res.y = sin(z.y);
+  //  sincos (z.y, &res.y, &res.x);
   res.x *= t;
   res.y *= t;
   return res;
@@ -374,7 +376,7 @@ __host__ inline void bin_flat_uv_bins(struct flat_vis_data *vis_bins,
       cudaError_check(cudaMallocManaged((void **)&vis_bins[cyi * chunk_count + cxi].vis, nv * sizeof(double _Complex)));
       }
   }
-  free(bin_chunk_count); //Cleanliness is godliness. 
+  //free(bin_chunk_count); //Cleanliness is godliness. 
   
   //1c) Actually bin in memory.
   // We can re-use our bin chunks counts.
@@ -399,6 +401,18 @@ __host__ inline void bin_flat_uv_bins(struct flat_vis_data *vis_bins,
 
     ++vis_bins[cy * chunk_count + cx].number_of_vis;
   }
+
+  for(int cyi = 0; cyi < chunk_count; ++cyi){
+    for(int cxi = 0; cxi < chunk_count; ++cxi){
+      assert(vis_bins[cyi * chunk_count + cxi].number_of_vis ==
+	     bin_chunk_count[cyi * chunk_count + cxi]);
+    }
+  }
+  int total_vis;
+  for (int i = 0; i < chunk_count * chunk_count; ++i){
+    total_vis += vis_bins[i].number_of_vis;
+  }
+  printf("Total Vis in U/V: %d\n",total_vis);
 }
 
 
@@ -418,6 +432,7 @@ __host__ inline void bin_flat_w_vis(struct flat_vis_data *vis_bins, //Our (fille
   int *bin_chunk_count = (int *)malloc(total_bins * wp_tot * sizeof(int));
   memset(bin_chunk_count, 0, total_bins * wp_tot * sizeof(int));
   //Pre-compute size of bins.
+  int bin_vis = 0;
   for(int cyi = 0; cyi < chunk_count; ++cyi){
     for(int cxi = 0; cxi < chunk_count; ++cxi){
 
@@ -427,9 +442,11 @@ __host__ inline void bin_flat_w_vis(struct flat_vis_data *vis_bins, //Our (fille
 	int wp = floor((w - w_min) / wincrement + 0.5);
 	//	int wp = abs((w / wincrement + 0.5) + abs(wp_min));
 	++bin_chunk_count[(cyi * (chunk_count * wp_tot)) + (cxi * wp_tot) + wp];
+	++bin_vis;
       }
     }
   }
+  printf("Pre-bin count: %d\n",bin_vis); //Make sure we aren't dropping visibilities...
 
   //Allocate memory to all bins. Even empty bins. Kernels run through empty bins in ~50uS.
   for(int cyi = 0; cyi < chunk_count; ++cyi){
@@ -441,6 +458,7 @@ __host__ inline void bin_flat_w_vis(struct flat_vis_data *vis_bins, //Our (fille
 	cudaError_check(cudaMallocManaged((void **)&new_bins[bi].v, nv * sizeof(double)));
 	cudaError_check(cudaMallocManaged((void **)&new_bins[bi].w, nv * sizeof(double)));
 	cudaError_check(cudaMallocManaged((void **)&new_bins[bi].vis, nv * sizeof(double _Complex)));
+	new_bins[bi].number_of_vis = 0;
       }
     }
   }
@@ -457,8 +475,6 @@ __host__ inline void bin_flat_w_vis(struct flat_vis_data *vis_bins, //Our (fille
 	double w = uv_bin->w[vi];
 	double _Complex visl = uv_bin->vis[vi];
 	int wp = floor((w - w_min) / wincrement + 0.5);
-		//	int wp = abs((w / wincrement + 0.5) + abs(wp_min));
-	  //	int wp = abs((w - w_min) / (wincrement + 0.5));
 
 	int bi = (cyi * (chunk_count * wp_tot)) + (cxi * wp_tot) + wp;
 	int ci = new_bins[bi].number_of_vis;
@@ -467,10 +483,15 @@ __host__ inline void bin_flat_w_vis(struct flat_vis_data *vis_bins, //Our (fille
 	new_bins[bi].w[ci] = w;
 	new_bins[bi].vis[ci] = visl;
 
-	++new_bins[bi].number_of_vis;
+	++(new_bins[bi].number_of_vis);
       }
     }
-  }			       
+  }
+  int total_vis=0;
+  for(int i = 0; i < chunk_count * chunk_count * wp_tot; ++i)
+    total_vis += new_bins[i].number_of_vis;
+  printf("Total U/V/W Vis: %d\n",total_vis);
+  
 }			       
 
 
