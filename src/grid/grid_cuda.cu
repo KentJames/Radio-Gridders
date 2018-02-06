@@ -46,9 +46,9 @@ __device__ void scatter_grid_point_flat(struct flat_vis_data *vis, // Our bins o
 					double wstep, // W-Increment 
 					int subgrid_size, //The size of our w-towers subgrid.
 					double theta, // Field of View Size
-					int offset_u, // Offset from top left of main grid to t.l of subgrid.
-					int offset_v, // ^^^^
-					int offset_w,
+					double offset_u, // Offset from top left of main grid to t.l of subgrid.
+					double offset_v, // ^^^^
+					double offset_w,
 					unsigned long long int *visc_reg){ 
 #else
 __device__ void scatter_grid_point_flat(struct flat_vis_data *vis, // Our bins of UV Data
@@ -60,9 +60,9 @@ __device__ void scatter_grid_point_flat(struct flat_vis_data *vis, // Our bins o
 					double wstep, // W-Increment 
 					int subgrid_size, //The size of our w-towers subgrid.
 					double theta, // Field of View Size
-					int offset_u, // Offset from top left of main grid to t.l of subgrid.
-					int offset_v, // ^^^^
-					int offset_w){ 
+					double offset_u, // Offset from top left of main grid to t.l of subgrid.
+					double offset_v, // ^^^^
+					double offset_w){ 
 #endif
   
   int grid_point_u = myU, grid_point_v = myV;
@@ -135,9 +135,9 @@ __device__ void scatter_grid_point(struct vis_data *bin, // Our bins of UV Data
 				   double wstep, // W-Increment 
 				   int subgrid_size, //The size of our w-towers subgrid.
 				   double theta, // Field of View Size
-				   int offset_u, // Offset from top left of main grid to t.l of subgrid.
-				   int offset_v, // ^^^^
-				   int offset_w,
+				   double offset_u, // Offset from top left of main grid to t.l of subgrid.
+				   double offset_v, // ^^^^
+				   double offset_w,
 				   unsigned long long int *visc_reg){
 #else
 __device__ void scatter_grid_point(struct vis_data *bin, // Our bins of UV Data
@@ -149,9 +149,9 @@ __device__ void scatter_grid_point(struct vis_data *bin, // Our bins of UV Data
 				   double wstep, // W-Increment 
 				   int subgrid_size, //The size of our w-towers subgrid.
 				   double theta, // Field of View Size
-				   int offset_u, // Offset from top left of main grid to t.l of subgrid.
-				   int offset_v, // ^^^^
-				   int offset_w){
+				   double offset_u, // Offset from top left of main grid to t.l of subgrid.
+				   double offset_v, // ^^^^
+				   double offset_w){
 #endif
 
   int grid_point_u = myU, grid_point_v = myV;
@@ -271,15 +271,12 @@ __global__ void add_subs2main_kernel(cuDoubleComplex *main, cuDoubleComplex *sub
       if (y1 > main_size/2) { y1 = main_size/2; }
       cuDoubleComplex *main_mid = main + (main_size + 1)*main_size/2;
       if(y>= y0 && y < y1 && x>= x0 && x < x1){
-	int y_f = y + sub_margin/2; // Tidy this up..
-	int x_f = x + sub_margin/2;
 	int y_s = y - y_min + sub_margin/2;
 	int x_s = x - x_min + sub_margin/2;
 	cuDoubleComplex *sub_offset = subs + (((cy * chunk_count) + cx) * sub_size * sub_size);
-	main_mid[y_f * main_size + x_f] = cuCadd(main_mid[y_f * main_size + x_f],
-					     sub_offset[y_s*sub_size + x_s]);
-	main_mid[y_f * main_size + x_f] = cuCdiv(main_mid[y_f * main_size + x_f],
-					     make_cuDoubleComplex(sub_size * sub_size, 0.0));
+	cuDoubleComplex normalised_number = cuCdiv(sub_offset[y_s*sub_size + x_s],
+						   make_cuDoubleComplex(sub_size * sub_size, 0.0));
+	main_mid[y * main_size + x] = cuCadd(main_mid[y * main_size + x], normalised_number);
 	//Not sure if this is good style. 1) Calculate offset. 2) Dereference via array notation
       }
     }
@@ -324,9 +321,9 @@ __global__ void scatter_grid_kernel_flat(struct flat_vis_data *vis, // No. of vi
 					 int subgrid_size, // Subgrid size
 					 double wstep, // W-Increment
 					 double theta, // Field of View
-					 int offset_u, // Top left offset from top left main grid
-					 int offset_v, // ^^^^
-					 int offset_w,
+					 double offset_u, // Top left offset from top left main grid
+					 double offset_v, // ^^^^
+					 double offset_w,
 					 unsigned long long int *visc_reg){
 #else
   __global__ void scatter_grid_kernel_flat(struct flat_vis_data *vis, // No. of visibilities
@@ -336,9 +333,9 @@ __global__ void scatter_grid_kernel_flat(struct flat_vis_data *vis, // No. of vi
 					 int subgrid_size, // Subgrid size
 					 double wstep, // W-Increment
 					 double theta, // Field of View
-					 int offset_u, // Top left offset from top left main grid
-					 int offset_v, // ^^^^
-					 int offset_w){
+					 double offset_u, // Top left offset from top left main grid
+					 double offset_v, // ^^^^
+					 double offset_w){
 #endif
   //Assign some visibilities to grid;
   
@@ -368,9 +365,9 @@ __global__ void scatter_grid_kernel(struct vis_data *bin, // Baseline bin
 				    int subgrid_size, // Subgrid size
 				    double wstep, // W-Increment
 				    double theta, // Field of View
-				    int offset_u, // Top left offset from top left main grid
-				    int offset_v, // ^^^^
-				    int offset_w,
+				    double offset_u, // Top left offset from top left main grid
+				    double offset_v, // ^^^^
+				    double offset_w,
 				    unsigned long long int *visc_reg){
 #else
   __global__ void scatter_grid_kernel(struct vis_data *bin, // Baseline bin
@@ -380,9 +377,9 @@ __global__ void scatter_grid_kernel(struct vis_data *bin, // Baseline bin
 				    int subgrid_size, // Subgrid size
 				    double wstep, // W-Increment
 				    double theta, // Field of View
-				    int offset_u, // Top left offset from top left main grid
-				    int offset_v, // ^^^^
-				    int offset_w){
+				    double offset_u, // Top left offset from top left main grid
+				    double offset_v, // ^^^^
+				    double offset_w){
 #endif
   
   for(int i = threadIdx.x; i < max_support * max_support; i += blockDim.x){
@@ -704,10 +701,10 @@ __host__ cudaError_t wtowers_CUDA_flat(const char* visfile, const char* wkernfil
   cuDoubleComplex *subgrids, *subimgs;
   
   cudaError_check(cudaMallocManaged((void **)&subgrids,
-				    total_chunks * subgrid_mem_size  * sizeof(cuDoubleComplex),
+				    total_chunks * subgrid_mem_size,
 				    cudaMemAttachGlobal));
   cudaError_check(cudaMallocManaged((void **)&subimgs,
-				    total_chunks * subgrid_mem_size * sizeof(cuDoubleComplex),
+				    total_chunks * subgrid_mem_size,
 				    cudaMemAttachGlobal));
 
   //Create streams for each tower and allocate our chunks in unified memory.
