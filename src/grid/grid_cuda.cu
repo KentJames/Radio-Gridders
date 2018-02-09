@@ -68,7 +68,7 @@ __device__ void scatter_grid_point_flat(struct flat_vis_data *vis, // Our bins o
   int grid_point_u = myU, grid_point_v = myV;
   cuDoubleComplex sum  = make_cuDoubleComplex(0.0,0.0);
   int supp = wkern->size_x;
-  int vi;
+  int vi = 0;
   
   for (vi = 0; vi < vis->number_of_vis; ++vi){
 
@@ -158,7 +158,7 @@ __device__ void scatter_grid_point(struct vis_data *bin, // Our bins of UV Data
   cuDoubleComplex sum  = make_cuDoubleComplex(0.0,0.0);
 
   short supp = short(wkern->size_x);
-  int vi;
+  int vi = 0;
   //  for (int i = 0; i < visibilities; i++) {
   int bl, time, freq;
   for (bl = 0; bl < bin->bl_count; ++bl){
@@ -806,10 +806,9 @@ __host__ cudaError_t wtowers_CUDA_flat(const char* visfile, const char* wkernfil
   #endif
   add_subs2main_kernel <<< dimGrid_main, dimBlock_main >>> (grid, subimgs, grid_size, subgrid_size,
   					  subgrid_margin, chunk_count_1d, chunk_size);  
-  //fft_shift_kernel <<< dimGrid_main, dimBlock_main >>> (grid, grid_size);
-  //cuFFTError_check(cufftExecZ2Z(grid_plan, grid, grid, CUFFT_INVERSE));
-
-  //fft_shift_kernel <<< dimGrid_main, dimBlock_main >>> (grid, grid_size);
+  fft_shift_kernel <<< dimGrid_main, dimBlock_main >>> (grid, grid_size);
+  cuFFTError_check(cufftExecZ2Z(grid_plan, grid, grid, CUFFT_INVERSE));
+  fft_shift_kernel <<< dimGrid_main, dimBlock_main >>> (grid, grid_size);
   
   return error;
 
@@ -861,10 +860,10 @@ __host__ cudaError_t wproj_CUDA(const char* visfile, const char* wkernfile,
   cudaEventCreate(&start);
   cudaEventRecord(start, 0);
   #ifdef __COUNT_VIS__
-  scatter_grid_kernel <<< 16 , 32 >>> (vis_dat,wkern_dat, grid, wkern_dat->size_x,
+  scatter_grid_kernel <<< 1 , 32 >>> (vis_dat,wkern_dat, grid, wkern_dat->size_x,
 				       grid_size,wkern_dat->w_step, theta, 0, 0, 0, vis_count);
   #else
-  scatter_grid_kernel <<< 16 , 32 >>> (vis_dat,wkern_dat, grid, wkern_dat->size_x,
+  scatter_grid_kernel <<< 1 , 32 >>> (vis_dat,wkern_dat, grid, wkern_dat->size_x,
 				       grid_size,wkern_dat->w_step, theta, 0, 0, 0);
   #endif
   cudaEventCreate(&stop);
