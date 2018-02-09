@@ -4,6 +4,11 @@ This is a repository that holds several reference GPU implementations of imagers
 
 The end result of these imagers is the "Dirty Map": the true sky brightness distribution convolved with the point spread function (p.s.f) of the instrument. Removing the p.s.f is done through a deconvolution step using either CLEAN or MaxEnt.
 
+## Known Bugs
+
+* Romein Scatter Gridder can subtly change the value of one visibility at each instantiation. Causes error to 1 part in 10^6. 
+
+
 ## Imagers
 
 The imagers that this repository describes are CUDA implementations of:
