@@ -14,7 +14,7 @@
 #include "radio.cuh"
 
 // Saves me writing a CLI. Sorry Jayce.
-#define GRID_SIZE 64 // UV Grid Size in 1-D
+#define GRID_SIZE 128 // UV Grid Size in 1-D
 #define ANTENNAS 256 // Antennas to grid
 #define ILLUM_X 3 // Aperture pattern extent. Assuming top hat,
 #define ILLUM_Y 3 // '' for Y
@@ -146,23 +146,21 @@ __global__ void scatter_grid_kernel(struct fengine_data* fourierData,
 				    cuComplex* uvgrid, //Our UV-Grid
 				    int max_support, //  Convolution size
 				    int grid_size,
-				    int data_size,
-				    int batch_no){
+				    int data_size){
 				
 #endif
   //Assign some visibilities to grid;
-
-      for(int i = threadIdx.x; i < max_support * max_support; i += blockDim.x){
-	  //  int i = threadIdx.x + blockIdx.x * blockDim.x;
-	  int myU = i % max_support;
-	  int myV = i / max_support;
+    int batch_no = blockIdx.x;
+    for(int i = threadIdx.x; i < max_support * max_support; i += blockDim.x){
+	//  int i = threadIdx.x + blockIdx.x * blockDim.x;
+	int myU = i % max_support;
+	int myV = i / max_support;
     
 #ifdef __COUNT_VIS__
-	  scatter_grid_point(fourierData, uvgrid, illum, max_support, myU, myV, grid_size, data_size, batch_no, visc_reg);
+	scatter_grid_point(fourierData, uvgrid, illum, max_support, myU, myV, grid_size, data_size, batch_no, visc_reg);
 #else
-	  scatter_grid_point(fourierData, uvgrid, illum, max_support, myU, myV, grid_size, data_size, batch_no);
-#endif
-		       
+	scatter_grid_point(fourierData, uvgrid, illum, max_support, myU, myV, grid_size, data_size, batch_no);
+#endif		       
   }
 }
 __host__ cudaError_t epic_romein(struct fengine_data* fourierData,
@@ -181,17 +179,18 @@ __host__ cudaError_t epic_romein(struct fengine_data* fourierData,
     std::cout << "Executing batch of Romein Kernels... ";
     // Launch a batch of Romein-Kernels.
     gettimeofday(&tcuda_start,NULL);
-    for (int i = 0; i < NBATCH; ++i){
+    //for (int i = 0; i < NBATCH; ++i){
 	//std::cout << i << "\n";
 	// Run each one asynchronously to maximise GPU occupancy.
-	scatter_grid_kernel <<< 1, 32, 0, streams[i] >>> (fourierData, illum, uvgrid, support_size, grid_size, ANTENNAS,i);
+    scatter_grid_kernel <<< NBATCH, 32, 0, streams[0] >>> (fourierData, illum, uvgrid, support_size, grid_size, ANTENNAS);
 	//cudaError_check(cudaDeviceSynchronize()); // Debug
-    }
+	//}
+    cudaError_check(cudaDeviceSynchronize());
     gettimeofday(&tcuda_end,NULL);
     std::cout << "done\n";
-    std::cout << "Romein batch time... " << ((tcuda_end.tv_sec - tcuda_start.tv_sec)*1000 + 
-					     (tcuda_end.tv_usec - tcuda_start.tv_usec)/1000);
-    std::cout << "ms\n";
+    std::cout << "Romein batch time... " << ((tcuda_end.tv_sec - tcuda_start.tv_sec)*1000000 + 
+					     (tcuda_end.tv_usec - tcuda_start.tv_usec));
+    std::cout << "us\n";
 	  
     return cudaSuccess;
 }
@@ -274,6 +273,30 @@ int main(){
     std::cout << "done\n";
     
     // Initialise and run CUDA.
+    std::cout << "Antennas... " << ANTENNAS << "\n";
+    std::cout << "No. of timestamps... " << NBATCH << "\n";
+    std::cout << "Grid Size... " << GRID_SIZE << "x" << GRID_SIZE << "\n";
+    std::cout << "Illumination Pattern Size... " << ILLUM_X << "x" << ILLUM_Y << "\n";
+    std::cout << "Amount of real-time data in fake batch... " << ((NBATCH*0.00001)*1000000) << "us\n";
     cudaError_check(epic_romein(fstruct, illumination, uvgrid, ILLUM_X, GRID_SIZE));
+    cudaError_check(cudaDeviceSynchronize());
+
+    //Lets look at the grid...
+    double *row = (double *)malloc(sizeof(double) * GRID_SIZE);
+    std::ofstream image_f ("image.out", std::ofstream::out | std::ofstream::binary);
+    std::cout << "Writing Image to File... ";
+    int grid_index = 2400 * GRID_SIZE * GRID_SIZE; //Arbitrary grid...
+    for(int i = 0; i < GRID_SIZE; ++i){
+	for(int j = 0; j < GRID_SIZE; ++j){
+	    row[j] = cuCrealf(uvgrid[grid_index + i*GRID_SIZE + j]);
+	}
+	image_f.write((char*)row, sizeof(double) * GRID_SIZE);
+    }
+    image_f.close();
+    std::cout << "done\n";
+    cudaError_t err = cudaGetLastError();
+    std::cout << "Error: " << cudaGetErrorString(err) << "\n";
+    cudaError_check(cudaDeviceReset());
+    
 
 }
