@@ -1,10 +1,10 @@
 //C++ Includes
 #include <iostream>
 #include <cassert>
+#include <sys/time.h>
 
 //CUDA Includes
 #include <cuComplex.h>
-#include <cufft.h>
 #include "cuda.h"
 #include "math.h"
 #include "cuda_runtime_api.h"
@@ -14,19 +14,20 @@
 #include "radio.cuh"
 
 // Saves me writing a CLI. Sorry Jayce.
-#define GRID_SIZE 128 // UV Grid Size in 1-D
+#define GRID_SIZE 64 // UV Grid Size in 1-D
 #define ANTENNAS 256 // Antennas to grid
 #define ILLUM_X 3 // Aperture pattern extent. Assuming top hat,
 #define ILLUM_Y 3 // '' for Y
-#define NBATCH 1024
+#define NBATCH 4096
 #define CHANNELS 4
 
 
 // SoA format for mock fengine_data
 struct fengine_data{
-    double *x, *y, *z;
+    int *x, *y, *z; //Just put exactly on grid points for sake of simplicity.
     cuComplex* fdata;
     int number_of_f_points;
+    int batch_len; // Stride between batch[i] and batch[i+1]
 };
 
 /*****************************
@@ -50,38 +51,39 @@ __device__ void scatter_grid_add(cuComplex *uvgrid,
     atomicAdd(&uvgrid[grid_point_u + grid_pitch*grid_point_v].y, sum.y); // Im
 }
 
-//Scatters grid points from a non-hierarchical dataset.
-//Advantage: Locality is almost certainly better for fragmented datasets.
-//Disadvantage: Not able to do baseline specific calibration, such as ionosphere correction.
-// Most of this stuff doesn't matter for EPIC yet... someone elses problem mwahaha.
 #ifdef __COUNT_VIS__
-__device__ void scatter_grid_point(struct fengine_data* fourierdata, // Our bins of UV Data
+__device__ void scatter_grid_point(struct fengine_data* fourierData,
 				   cuComplex* uvgrid, // Our main UV Grid
 				   cuComplex* illum, //Our W-Kernel
 				   int max_supp, // Max size of W-Kernel
 				   int myU, //Our assigned u/v points.
 				   int myV, // ^^^
 				   int grid_size, //The size of our w-towers subgrid.
+				   int data_size,
+				   int batch_no,
 				   unsigned long long int *visc_reg){ 
 #else
-__device__ void scatter_grid_point(struct fengine_data* fourierdata, // Our fourier values
-				   cuComplex* uvgrid, // Our main UV Grid
-				   cuComplex* illum, //Our Illumination-Kernel
-				   int max_supp, // Max size of W-Kernel
-				   int myU, //Our assigned u/v points.
-				   int myV, // ^^^
-				   int grid_size){ 
+ __device__ void scatter_grid_point(struct fengine_data* fourierData,
+				    cuComplex* uvgrid, // Our main UV Grid
+				    cuComplex* illum, //Our Illumination-Kernel
+				    int max_supp, // Max size of W-Kernel
+				    int myU, //Our assigned u/v points.
+				    int myV, // ^^^
+				    int grid_size,
+				    int data_size,
+				    int batch_no){ 
 #endif
   
   int grid_point_u = myU, grid_point_v = myV;
   cuComplex sum  = make_cuComplex(0.0,0.0);
   short supp = ILLUM_X;
+  int vi_s = batch_no * data_size;
+  int grid_s = grid_size * grid_size * batch_no;
   int vi = 0;
-  
-  for (vi = 0; vi < fourierdata->number_of_f_points; ++vi){
+  for (vi = vi_s; vi < (vi_s+data_size); ++vi){
 
-    int u = fourierdata->x[vi]; 
-    int v = fourierdata->y[vi];
+    int u = fourierData->x[vi]; 
+    int v = fourierData->y[vi];
 
     // Determine convolution point. This is basically just an
     // optimised way to calculate.
@@ -101,7 +103,7 @@ __device__ void scatter_grid_point(struct fengine_data* fourierdata, // Our four
     // Grid point changed?
     if (myGridU != grid_point_u || myGridV != grid_point_v) {
       // Atomically add to grid. This is the bottleneck of this kernel.
-      scatter_grid_add(uvgrid, grid_size, grid_size, grid_point_u, grid_point_v, sum);
+      scatter_grid_add(uvgrid+grid_s, grid_size, grid_size, grid_point_u, grid_point_v, sum);
       // Switch to new point
       sum = make_cuComplex(0.0, 0.0);
       grid_point_u = myGridU;
@@ -112,16 +114,15 @@ __device__ void scatter_grid_point(struct fengine_data* fourierdata, // Our four
     cuComplex px = illum[myConvV * supp + myConvU];// ??
     //cuComplex px = *(cuComplex*)&wkern->kern_by_w[w_plane].data[sub_offset + myConvV * supp + myConvU];	
     // Sum up
-    cuComplex vi_v = fourierdata->fdata[vi];
+    cuComplex vi_v = fourierData->fdata[vi];
     sum = cuCfmaf(cuConjf(px), vi_v, sum);
-
 
   }
   // Add remaining sum to grid
   #ifdef __COUNT_VIS__
   atomicAdd(visc_reg,vi);
   #endif
-  scatter_grid_add(uvgrid, grid_size, grid_size, grid_point_u, grid_point_v, sum);
+  scatter_grid_add(uvgrid+grid_s, grid_size, grid_size, grid_point_u, grid_point_v, sum);
 }
 
 
@@ -131,18 +132,22 @@ __device__ void scatter_grid_point(struct fengine_data* fourierdata, // Our four
  ******************/
  
 #ifdef __COUNT_VIS__
-__global__ void scatter_grid_kernel(struct fengine_data* vis, // Mock F-Engine Data
+ __global__ void scatter_grid_kernel(struct fengine_data* fourierData,
+				     cuComplex* illum, // Illumination Pattern
+				     cuComplex* uvgrid, //Our UV-Grid
+				     int max_support, //  Convolution size
+				     int grid_size, // Subgrid size
+				     int data_size,
+				     int batch_no,
+				     unsigned long long int* visc_reg){
+#else
+__global__ void scatter_grid_kernel(struct fengine_data* fourierData,
 				    cuComplex* illum, // Illumination Pattern
 				    cuComplex* uvgrid, //Our UV-Grid
 				    int max_support, //  Convolution size
-				    int grid_size, // Subgrid size
-				    unsigned long long int* visc_reg){
-#else
-__global__ void scatter_grid_kernel(struct fengine_data* vis, // No. of visibilities
-				      cuComplex* illum, // Illumination Pattern
-				      cuComplex* uvgrid, //Our UV-Grid
-				      int max_support, //  Convolution size
-				      int grid_size){
+				    int grid_size,
+				    int data_size,
+				    int batch_no){
 				
 #endif
   //Assign some visibilities to grid;
@@ -153,25 +158,40 @@ __global__ void scatter_grid_kernel(struct fengine_data* vis, // No. of visibili
 	  int myV = i / max_support;
     
 #ifdef __COUNT_VIS__
-	  scatter_grid_point(vis, illum, uvgrid, max_support, myU, myV, grid_size, visc_reg);
+	  scatter_grid_point(fourierData, uvgrid, illum, max_support, myU, myV, grid_size, data_size, batch_no, visc_reg);
 #else
-	  scatter_grid_point(vis, illum, uvgrid, max_support, myU, myV, grid_size);
+	  scatter_grid_point(fourierData, uvgrid, illum, max_support, myU, myV, grid_size, data_size, batch_no);
 #endif
 		       
   }
 }
 __host__ cudaError_t epic_romein(struct fengine_data* fourierData,
-				 cuComplex* illum,
-				 cuComplex* uvgrid,
-				 int support_size,
-				 int grid_size){
+				 cuComplex* illum, // Our illumination pattern.
+				 cuComplex* uvgrid, // Our grid
+				 int support_size, // Convolution size
+				 int grid_size // Size of grid along each dimension. (Square matrix)
+				 ){
 
+    struct timeval tcuda_start, tcuda_end;
+    
+    std::cout << "Initialising CUDA streams... ";
+    cudaStream_t* streams = (cudaStream_t *) malloc(NBATCH * sizeof(cudaStream_t));
+    for (int i = 0; i < NBATCH; ++i) cudaError_check(cudaStreamCreate(&streams[i]));
+    std::cout << "done\n";
+    std::cout << "Executing batch of Romein Kernels... ";
     // Launch a batch of Romein-Kernels.
-    for (int i = 0; i < NBATCH; i++){
-
-
-
+    gettimeofday(&tcuda_start,NULL);
+    for (int i = 0; i < NBATCH; ++i){
+	//std::cout << i << "\n";
+	// Run each one asynchronously to maximise GPU occupancy.
+	scatter_grid_kernel <<< 1, 32, 0, streams[i] >>> (fourierData, illum, uvgrid, support_size, grid_size, ANTENNAS,i);
+	//cudaError_check(cudaDeviceSynchronize()); // Debug
     }
+    gettimeofday(&tcuda_end,NULL);
+    std::cout << "done\n";
+    std::cout << "Romein batch time... " << ((tcuda_end.tv_sec - tcuda_start.tv_sec)*1000 + 
+					     (tcuda_end.tv_usec - tcuda_start.tv_usec)/1000);
+    std::cout << "ms\n";
 	  
     return cudaSuccess;
 }
@@ -209,30 +229,51 @@ int main(){
     }
     
     cuComplex* uvgrid; // Our U-V Grid
-    cuComplex* invec; // Vector of fourier values.
     cuComplex* illumination; //Our illumination pattern
+
+    struct fengine_data* fstruct;
     
     int gsize = GRID_SIZE * GRID_SIZE * NBATCH * sizeof(cuComplex);
-    int vecsize = ANTENNAS * NBATCH * sizeof(cuComplex);
+    int vecsize_loc = ANTENNAS * NBATCH * sizeof(double);
+    int vecsize_data = ANTENNAS * NBATCH * sizeof(cuComplex);
     int illumsize = ILLUM_X * ILLUM_Y * sizeof(cuComplex);
     
     // Mallocs
     cudaError_check(cudaMallocManaged((void **)&uvgrid, gsize,cudaMemAttachGlobal));
-    cudaError_check(cudaMallocManaged((void **)&invec, vecsize, cudaMemAttachGlobal));
     cudaError_check(cudaMallocManaged((void **)&illumination, illumsize, cudaMemAttachGlobal));
+    cudaError_check(cudaMallocManaged((void **)&fstruct, sizeof(fengine_data), cudaMemAttachGlobal));
 
+    //Allocate elements of fdata.
+    cudaError_check(cudaMallocManaged((void **)&fstruct->x, vecsize_loc, cudaMemAttachGlobal));
+    cudaError_check(cudaMallocManaged((void **)&fstruct->y, vecsize_loc, cudaMemAttachGlobal));
+    cudaError_check(cudaMallocManaged((void **)&fstruct->z, vecsize_loc, cudaMemAttachGlobal));
+    cudaError_check(cudaMallocManaged((void **)&fstruct->fdata, vecsize_data, cudaMemAttachGlobal));
+    
+    //Memset uvgrid
+    cudaError_check(cudaMemset(uvgrid, 0.0, gsize));
+
+    std::cout << "Initialising random input data... ";
     // Initialise input vector with random fourier values.
     thrust::default_random_engine generator;
-    thrust::normal_distribution<float> distribution(0.0,5.0);
+    thrust::normal_distribution<float> fdata_distribution(0.0,5.0);
+    thrust::uniform_int_distribution<int> loc_distribution(ILLUM_X,GRID_SIZE-ILLUM_X);
    
     for (int i = 0; i < ANTENNAS * NBATCH; ++i){
-	invec[i] = make_cuComplex(distribution(generator),distribution(generator));
+	fstruct->fdata[i] = make_cuComplex(fdata_distribution(generator),fdata_distribution(generator));
+	fstruct->x[i] = loc_distribution(generator);
+	fstruct->y[i] = loc_distribution(generator);
     }
+    cudaError_check(cudaMemset(fstruct->z,0,vecsize_loc)); // Don't care about z yet..
+    fstruct->number_of_f_points = ANTENNAS * NBATCH; // Total vis_num
+    fstruct->batch_len = ANTENNAS; // Number of vis in batch.
+    std::cout << "done\n";
 
+    std::cout << "Initialising illumination pattern (square top-hat function)... ";
     // Initialise illumination pattern. Square top-hat function.
     for (int i = 0; i < ILLUM_X * ILLUM_Y; ++i) illumination[i] = make_cuComplex(1.0,0.0);
-
+    std::cout << "done\n";
+    
     // Initialise and run CUDA.
-    //cudaError_check(epic_romein(invec, illumination, uvgrid, ILLUM_X, GRID_SIZE));
+    cudaError_check(epic_romein(fstruct, illumination, uvgrid, ILLUM_X, GRID_SIZE));
 
 }
