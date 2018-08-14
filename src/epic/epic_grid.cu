@@ -341,8 +341,8 @@ int main(){
 	delta = cuCadd(delta,deltadd);
     }
     std::cout << "done\n";
-    std::cout << "Real delta... " << cuCreal(delta) << "\n";
-    std::cout << "Imag delta... " << cuCimag(delta) << "\n";
+    std::cout << "Real delta... " << fabs(cuCreal(delta)) << "\n";
+    std::cout << "Imag delta... " << fabs(cuCimag(delta)) << "\n";
 
     std::cout << "Validation passed check... " << std::flush;
     if ((fabs(cuCreal(delta)) < 0.1) && (fabs(cuCimag(delta)) < 0.1)){
