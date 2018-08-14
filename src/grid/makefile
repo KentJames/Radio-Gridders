@@ -2,10 +2,9 @@ NVCC = nvcc
 CC = gcc
 CXX = g++
 
-CFLAGS= -gencode arch=compute_35,code=sm_35
-override CXXFLAGS+=-std=c++11 -gencode arch=compute_35,code=sm_35 -I../common
-LDFLAGS=-lhdf5 -lm -lcufft -lcublas -gencode arch=compute_35,code=sm_35 -L../common -lhdf5_cu
-CUDA_FLAGS=-Xcompiler -fopenmp -Xptxas -v,
+override CXXFLAGS +=-std=c++11 -I../common
+override LDFLAGS += -L/data4/jkent/bifrost/lib -lhdf5 -lm -lcufft -lcublas -gencode arch=compute_52,code=sm_52 -L../common -lhdf5_cu
+override CUDA_FLAGS += 
 
 BINDIR = ./
 
@@ -13,8 +12,8 @@ all: grid.out
 
 
 clean:
-	rm *.o
-	rm *.out
+	rm -f *.o 
+	rm -f *.out
 
 
 grid.out: grid_cuda.o grid.o 
