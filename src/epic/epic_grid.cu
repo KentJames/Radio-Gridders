@@ -22,14 +22,6 @@
 #define CHANNELS 4
 
 
-// SoA format for mock fengine_data
-struct fengine_data{
-    int *x, *y, *z; //Just put exactly on grid points for sake of simplicity.
-    cuComplex* fdata;
-    int number_of_f_points;
-    int batch_len; // Stride between batch[i] and batch[i+1]
-};
-
 /*****************************
         Device Functions
  *****************************/
