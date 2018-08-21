@@ -42,6 +42,10 @@ The W-Projection kernel implemented is a reduced bandwidth scatter gridder desig
 Similar to W-Stacking, but further divides the grid to take advantage of the reduced complexity of small 2-D FFT's. Uses the concept
 of Image Domain Gridding, and Romein's W-Projection gridder.
 
+### EPIC
+
+An implementation of the gridding stage for a bunch of electric field data for a direct imaging correlator.
+
 ## Build
 
 To build the gridders, you need:
