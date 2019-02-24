@@ -71,6 +71,15 @@ extern "C" {
     double w;
   };
 
+  // Seperable k=ernel data
+  struct sep_kernel_data
+  {
+    double *data; // Assumed to be real
+    int size;
+    int oversampling;
+  };
+
+
   struct w_kernel_data
   {
     int plane_count;
@@ -142,6 +151,8 @@ extern "C" {
 
   void flatten_visibilities_CUDA(struct vis_data *vis, struct flat_vis_data *flat_vis);
 
+    int load_sep_kern(const char *filename, struct sep_kernel_data *sepkern);
+    
   //You must compile both hdf5.c AND your kernel with -DVAR_W_KERN to use variable w-kernels.
 #ifdef VAR_W_KERN
   int load_wkern_CUDA(const char *filename, double theta, struct var_w_kernel_data *wkern);

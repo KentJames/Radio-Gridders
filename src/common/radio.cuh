@@ -8,6 +8,7 @@
 #include <fstream>
 #include <cstdlib>
 #include <cassert>
+#include <cstring>
 
 //CUDA Includes
 #include <cufft.h>
