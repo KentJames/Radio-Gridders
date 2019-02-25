@@ -10,9 +10,25 @@
 #define THREADS_BLOCK 16
 
 
+
+std::complex<double> predict_visibility(std::vector<double> points,
+					double u,
+					double v,
+					double w);
+
+std::complex<double> predict_visibility_quantized(std::vector<double> points,
+						  double theta,
+						  double lam,
+						  double u,
+						  double v,
+						  double w);
+
+std::vector<double> generate_random_points(int npts, double theta, double lam);
+
+
 std::complex<double> wstack_predict(double theta,
 				    double lam,
-				    int npts,
+				    std::vector<double> points,
 				    double u,
 				    double v,
 				    double w,

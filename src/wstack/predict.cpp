@@ -15,11 +15,6 @@
 const double PI  =3.141592653589793238463;
 const float  PI_F=3.14159265358979f;
 
-
-typedef std::vector < std::vector < std::complex<double> > > complex_2Darr;
-typedef std::vector < std::complex<double>> complex_vec;
-
-
 template <typename T>
 class vector2D {
 public:
@@ -277,7 +272,7 @@ void fft_shift_2Darray(vector2D<std::complex<double>>& array){
 //TODO: There is a subtle bug raising error. Where is it...
 std::complex<double> wstack_predict(double theta,
 				    double lam,
-				    int npts,
+				    std::vector<double> points,
 				    double u,
 				    double v,
 				    double w,
@@ -315,7 +310,7 @@ std::complex<double> wstack_predict(double theta,
 
     std::cout << "Max W: " << max_w << "\n";
     std::cout << "W Planes: " << w_planes << "\n";
-    std::vector<double> points = generate_random_points(npts, theta, lam);
+    
     vector2D<std::complex<double>> sky = generate_sky(points,
 						      theta,
 						      lam,
@@ -337,10 +332,9 @@ std::complex<double> wstack_predict(double theta,
      			    FFTW_MEASURE);
 
 
-    std::cout << "Multiplying sky by fresnel "<< (floor(-w_planes/2)-2) << " times \n";
     multiply_fresnel_pattern(wtransfer,sky,(floor(-w_planes/2)-2));
 
-    std::cout << "##### W Stacking #####\n";
+    
     for(int i = 0; i < w_planes; ++i){
 
 	std::cout << "Processing Plane: " << i << "\n";;
@@ -356,14 +350,6 @@ std::complex<double> wstack_predict(double theta,
  
 	multiply_fresnel_pattern(wtransfer,sky,1);
      
-	std::cout << "WStack: " << wstacks(2049,2049,i) << "\n";
-	std::cout << "WStack: " << wstacks(2047,2047,i) << "\n";
-	std::cout << "WStack: " << wstacks(2047,2049,i) << "\n";
-	std::cout << "WStack: " << wstacks(2049,2047,i) << "\n";
-	std::cout << "DFT: " << predict_visibility(points,5.0,5.0,(i-6)*dw) << "\n";
-	std::cout << "DFT: " << predict_visibility(points,-5.0,-5.0,(i-6)*dw) << "\n";
-	std::cout << "DFT: " << predict_visibility(points,-5.0,5.0,(i-6)*dw) << "\n";
-	std::cout << "DFT: " << predict_visibility(points,5.0,-5.0,(i-6)*dw) << "\n";
 	skyp.clear();
 	plane.clear();	
 
@@ -372,23 +358,28 @@ std::complex<double> wstack_predict(double theta,
     // Begin De-convolution process using Sze-Tan Kernels.
     std::complex<double> vis_sze = {0.0,0.0};
     int oversampling = grid_conv_uv->oversampling;
+    int oversampling_w = grid_conv_w->oversampling;
     int aa_h = std::floor(aa_support_uv/2);
     int aaw_h = std::floor(aa_support_w/2);
     for(int dui = -aa_h; dui < aa_h; ++dui){
 
 	int dus = std::round(u/du) + grid_size + dui;
+	int ovu_offset = std::floor((std::fmod(u,du)/du)*oversampling);
+	std::cout << "OVU Offset: " << ovu_offset << "\n";
+	int aas_u = (dui+aa_h) * oversampling + ovu_offset;
 	
 	for(int dvi = -aa_h; dvi < aa_h; ++dvi){
 
 	    int dvs = std::round(v/du) + grid_size + dvi;
+	    int ovv_offset = std::floor((std::fmod(v,du)/du)*oversampling);
+	    int aas_v = (dvi+aa_h) * oversampling + ovv_offset;
+
 	    
 	    for(int dwi = -aaw_h; dwi < aaw_h; ++dwi){
 
 		int dws = std::round(w/dw) + aaw_h + floor(w_planes/2) + dwi;
-	
-		int aas_u = (dui+aa_h) * 4096;
-		int aas_v = (dvi+aa_h) * 4096;
-		int aas_w = (dwi+aaw_h) * 4096;
+		int ovw_offset = std::floor((std::fmod(w,dw)/dw)*oversampling_w);
+		int aas_w = (dwi+aaw_h) * oversampling_w + ovw_offset;	
 		
 		double grid_convolution = 1.0 * 
 		    grid_conv_uv->data[aas_u] *
@@ -403,13 +394,7 @@ std::complex<double> wstack_predict(double theta,
 	}
     }
 
-    
-    std::complex<double> vis = predict_visibility(points,u,v,w);
-    std::complex<double> visq = predict_visibility_quantized(points,theta,lam,u,v,w);
-    std::cout << "W-Stacks Prediction: " << vis_sze << "\n";
-    std::cout << "DFT Prediction: " << vis << "\n";
-    std::cout << "DFT Prediction(Quantized): " << visq << "\n";
-    std::cout << "Error: " << std::abs(vis_sze - visq) / std::sqrt(npts) << "\n";
-    
+    return vis_sze;
+   
 }
 

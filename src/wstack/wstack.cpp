@@ -221,7 +221,7 @@ int main(int argc, char **argv) {
        PREDICT
     */
     if (mode == 0){
-
+	
 	if (checkCmdLineFlag(argc, (const char **) argv, "pu") == 0 ||
 	    checkCmdLineFlag(argc, (const char **) argv, "pv") == 0 ||
 	    checkCmdLineFlag(argc, (const char **) argv, "pw") == 0) {
@@ -234,11 +234,11 @@ int main(int argc, char **argv) {
 	    pv =  getCmdLineArgumentFloat(argc, (const char **) argv, "pv");
 	    pw =  getCmdLineArgumentFloat(argc, (const char **) argv, "pw");
 	}
-
-	
+	std::cout << "##### W Stacking #####\n";
+	std::vector<double> points = generate_random_points(npts, theta, lambda);
 	std::complex<double> vis = wstack_predict(theta,
 						  lambda,
-						  npts,
+						  points,
 						  pu,
 						  pv,
 						  pw,
@@ -251,9 +251,16 @@ int main(int argc, char **argv) {
 						  sepkern_lm,
 						  sepkern_n);
 
+
+	std::complex<double> visq = predict_visibility_quantized(points,theta,lambda,pu,pv,pw);
+	std::cout << "W-Stacks Prediction: " << vis << "\n";
+	std::cout << "DFT Prediction: " << visq << "\n";
+	std::cout << "Error: " << std::abs(vis - visq) / std::sqrt(npts) << "\n";
+
       
       
-      
+
+	
 
     }
     /* 
@@ -263,5 +270,5 @@ int main(int argc, char **argv) {
 	// Does nothing for now.
 	return 0;
     }
-    
+    return 0;
 }
