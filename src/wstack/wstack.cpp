@@ -243,7 +243,7 @@ int main(int argc, char **argv) {
 						  pv,
 						  pw,
 						  5.0,
-						  40,
+						  49.937,
 						  8,
 						  4,
 						  sepkern_uv,
