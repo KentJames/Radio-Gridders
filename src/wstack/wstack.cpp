@@ -87,7 +87,7 @@ int main(int argc, char **argv) {
     double theta = false;
     double lambda = false;
     int mode = 0;
-    int npts = 10; 
+    int npts = 0; 
     double pu, pv, pw;
     pu = pv = pw = 0;
 
@@ -236,6 +236,11 @@ int main(int argc, char **argv) {
 	}
 	std::cout << "##### W Stacking #####\n";
 	std::vector<double> points = generate_random_points(npts, theta, lambda);
+	std::cout << "Visibility at: " << pu << " " << pv << " " << pw << "\n";
+	std::complex<double> visq = predict_visibility_quantized(points,theta,lambda,pu,pv,pw);
+	std::complex<double> visd = predict_visibility(points,pu,pv,pw);
+	std::cout << "DFT Prediction: " << visq << "\n";
+	std::cout << " : " << visd << "\n";
 	std::complex<double> vis = wstack_predict(theta,
 						  lambda,
 						  points,
@@ -243,7 +248,7 @@ int main(int argc, char **argv) {
 						  pv,
 						  pw,
 						  5.0,
-						  49.937,
+						  49.9374216792,
 						  8,
 						  4,
 						  sepkern_uv,
@@ -252,10 +257,11 @@ int main(int argc, char **argv) {
 						  sepkern_n);
 
 
-	std::complex<double> visq = predict_visibility_quantized(points,theta,lambda,pu,pv,pw);
+
+
 	std::cout << "W-Stacks Prediction: " << vis << "\n";
-	std::cout << "DFT Prediction: " << visq << "\n";
-	std::cout << "Error: " << std::abs(vis - visq) / std::sqrt(npts) << "\n";
+
+	std::cout << "Error: " << std::abs(vis - visq) / npts << "\n";
 
       
       

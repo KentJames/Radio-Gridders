@@ -1,4 +1,5 @@
 #include <iostream>
+#include <iomanip>
 #include <complex>
 #include <cassert>
 #include <cstring>
@@ -100,15 +101,15 @@ std::complex<double> predict_visibility(std::vector<double> points,
 					double w){
 
     std::complex<double> vis = (0.0,0.0);
-    double npts = points.size()/2;
+    int npts = points.size()/2;
     for(int i = 0; i < npts; ++i){
 	double l = points[2*i];
 	double m = points[2*i + 1];
 	double n = std::sqrt(1 - l*l - m*m) - 1.0;	
 	
-	std::complex<double> phase = {0,2 * PI * (u*l + v*m + w*n)};
-	
-	vis += 1.0 * std::exp(phase);
+	std::complex<double> phase = {0,-2 * PI * (u*l + v*m + w*n)};
+	std::complex<double> amp = {1.0,0.0};
+	vis += amp * std::exp(phase);
 	
     }
     return vis;
@@ -121,7 +122,7 @@ std::complex<double> predict_visibility_quantized(std::vector<double> points,
 						  double v,
 						  double w){
 
-    int grid_size = floor(theta * lam);
+    int grid_size = std::floor(theta * lam);
     
     std::complex<double> vis = {0.0,0.0};
     double npts = points.size()/2;
@@ -133,13 +134,13 @@ std::complex<double> predict_visibility_quantized(std::vector<double> points,
 	int lc = std::floor((l/theta + 0.5) * grid_size);
 	int mc = std::floor((m/theta + 0.5) * grid_size);
 
-	double lq = ((lc - grid_size/2)/grid_size) * theta;
-	double mq = ((mc - grid_size/2)/grid_size) * theta;
+	double lq = (((double)lc - grid_size/2)/grid_size) * theta;
+	double mq = (((double)mc - grid_size/2)/grid_size) * theta;	
+	double n = std::sqrt(1.0 - lq*lq - mq*mq) - 1.0;
 	
-	double n = std::sqrt(1 - lq*lq - mq*mq) - 1.0;	
-	std::complex<double> phase = {0,2 * PI * (u*l + v*m + w*n)};
-	
-	vis += 1.0 * std::exp(phase);
+	std::complex<double> phase = {0,-2 * PI * (u*lq + v*mq + w*n)};
+	std::complex<double> amp = {1.0,0.0};
+	vis += amp * std::exp(phase);
 	
     }
     return vis;
@@ -172,7 +173,7 @@ vector2D<std::complex<double>> generate_sky(std::vector<double> points,
 					    struct sep_kernel_data *grid_corr_lm,
 					    struct sep_kernel_data *grid_corr_n){
     
-    int grid_size = floor(theta * lam);
+    int grid_size = std::floor(theta * lam);
     vector2D<std::complex<double>> sky(grid_size, grid_size,{0.0,0.0});
 
     int npts = points.size()/2;
@@ -182,21 +183,25 @@ vector2D<std::complex<double>> generate_sky(std::vector<double> points,
 	// Calculate co-ordinates
 	double l = points[2*i];
 	double m = points[2*i + 1];
-	double n = std::sqrt(1.0 - l*l - m*m) - 1.0;
-	int lc = std::floor(((l / theta + 0.5) * grid_size));
-	int mc = std::floor(((m / theta + 0.5) * grid_size));
+	
+	int lc = std::floor((l / theta + 0.5) * grid_size);
+	int mc = std::floor((m / theta + 0.5) * grid_size);
+
+	double lq = (((double)lc - grid_size/2)/grid_size) * theta;
+	double mq = (((double)mc - grid_size/2)/grid_size) * theta;
+	double n = std::sqrt(1.0 - lq*lq - mq*mq) - 1.0;
 
 	// Calculate grid correction function
 
 	int lm_size_t = grid_corr_lm->size * grid_corr_lm->oversampling;
-	int n_size_t = grid_corr_n->size*grid_corr_n->oversampling;
+	int n_size_t = grid_corr_n->size * grid_corr_n->oversampling;
 	double lm_step = 1.0/(double)lm_size_t;
 	double n_step = 1.0/(double)n_size_t; // Not too sure about this
 
 
-	int aau = std::round((du*l)/lm_step) + lm_size_t/2;
-	int aav = std::round((du*m)/lm_step) + lm_size_t/2;
-	int aaw = std::round((dw*n)/n_step) + n_size_t/2;
+	int aau = std::floor((du*lq)/lm_step + lm_size_t/2);
+	int aav = std::floor((du*mq)/lm_step + lm_size_t/2);
+	int aaw = std::floor((dw*n)/n_step + n_size_t/2);
 
 	    
 	double a = 1.0;
@@ -206,7 +211,7 @@ vector2D<std::complex<double>> generate_sky(std::vector<double> points,
 
 	std::complex<double> source = {1.0,0.0};
 	source = source / a;
-	sky(lc,mc) += source;
+	sky(lc,mc) += source; // Sky needs to be transposed, not quite sure why.
     }
     
     return sky;
@@ -328,13 +333,13 @@ std::complex<double> wstack_predict(double theta,
     plan = fftw_plan_dft_2d(2*grid_size,2*grid_size,
     			    reinterpret_cast<fftw_complex*>(skyp.dp()),
      			    reinterpret_cast<fftw_complex*>(plane.dp()),
-     			    1,
+     			    FFTW_FORWARD,
      			    FFTW_MEASURE);
 
 
-    multiply_fresnel_pattern(wtransfer,sky,(floor(-w_planes/2)-2));
+    multiply_fresnel_pattern(wtransfer,sky,(std::floor(-w_planes/2)));
 
-    
+    std::cout << std::setprecision(15);
     for(int i = 0; i < w_planes; ++i){
 
 	std::cout << "Processing Plane: " << i << "\n";;
@@ -347,13 +352,31 @@ std::complex<double> wstack_predict(double theta,
 	std::complex<double> *wp = wstacks.dp() + i*(4*grid_size*grid_size);
 	std::complex<double> *pp = plane.dp();
 	std::memcpy(wp,pp,sizeof(std::complex<double>) * (4*grid_size*grid_size));
- 
+
 	multiply_fresnel_pattern(wtransfer,sky,1);
      
 	skyp.clear();
 	plane.clear();	
 
+
     }
+
+    std::cout << "############\n";
+    std::cout << std::setprecision(15);
+    std::cout << wstacks(2000,2096,4) << "\n";
+    std::cout << wstacks(2096,2096,4) << "\n";
+    std::cout << wstacks(2096,2000,4) << "\n";
+    std::cout << wstacks(2000,2000,4) << "\n";
+    std::cout << predict_visibility_quantized(points,theta,lam,-240,240,0) << "\n";
+    std::cout << predict_visibility_quantized(points,theta,lam,240,240,0) << "\n";
+    std::cout << predict_visibility_quantized(points,theta,lam,240,-240,0) << "\n";
+    std::cout << predict_visibility_quantized(points,theta,lam,-240,-240,0) << "\n";
+    std::cout << wstacks(2048,2048,0) << "\n";
+    std::cout << wstacks(2048,2048,1) << "\n";
+    std::cout << wstacks(2048,2048,2) << "\n";
+    std::cout << wstacks(2048,2048,3) << "\n";
+    std::cout << wstacks(2048,2048,4) << "\n";
+    std::cout << wstacks(2048,2048,5) << "\n";
     
     // Begin De-convolution process using Sze-Tan Kernels.
     std::complex<double> vis_sze = {0.0,0.0};
@@ -363,23 +386,18 @@ std::complex<double> wstack_predict(double theta,
     int aaw_h = std::floor(aa_support_w/2);
     for(int dui = -aa_h; dui < aa_h; ++dui){
 
-	int dus = std::round(u/du) + grid_size + dui;
-	int ovu_offset = std::floor((std::fmod(u,du)/du)*oversampling);
-	std::cout << "OVU Offset: " << ovu_offset << "\n";
-	int aas_u = (dui+aa_h) * oversampling + ovu_offset;
+	int dus = std::round(u/du) + grid_size + dui; 
+	int aas_u = (dui+aa_h) * oversampling;
 	
 	for(int dvi = -aa_h; dvi < aa_h; ++dvi){
 
 	    int dvs = std::round(v/du) + grid_size + dvi;
-	    int ovv_offset = std::floor((std::fmod(v,du)/du)*oversampling);
-	    int aas_v = (dvi+aa_h) * oversampling + ovv_offset;
-
+	    int aas_v = (dvi+aa_h) * oversampling;
 	    
 	    for(int dwi = -aaw_h; dwi < aaw_h; ++dwi){
 
-		int dws = std::round(w/dw) + aaw_h + floor(w_planes/2) + dwi;
-		int ovw_offset = std::floor((std::fmod(w,dw)/dw)*oversampling_w);
-		int aas_w = (dwi+aaw_h) * oversampling_w + ovw_offset;	
+		int dws = std::round(w/dw) + floor(w_planes/2) + dwi;
+		int aas_w = (dwi+aaw_h) * oversampling_w;	
 		
 		double grid_convolution = 1.0 * 
 		    grid_conv_uv->data[aas_u] *
