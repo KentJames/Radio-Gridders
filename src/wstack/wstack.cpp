@@ -5,9 +5,7 @@
 #include <random>
 
 //CUDA Includes
-#include <cuComplex.h>
-#include "cuda.h"
-#include "cuda_runtime_api.h"
+
 #include "helper_string.h"
 
 #include "wstack_common.cuh"
@@ -51,7 +49,7 @@ int main(int argc, char **argv) {
 	return 0;
     }
 
-    /*
+#ifdef CUDA_ACCELERATION
     //Get information on GPU's in system.
     std::cout << "CUDA System Information: \n\n";
     int numberofgpus;
@@ -82,7 +80,18 @@ int main(int argc, char **argv) {
          
     }
     */
-    init_dtype_cpx();
+
+    if (checkCmdLineFlag(argc, (const char **) argv, "cuda")){
+	cuda_acceleration = getCmdLineArgumentFloat(argc, (const char **) argv, "cuda");
+    }
+
+     if (checkCmdLineFlag(argc, (const char **) argv, "device")){
+	 dev_no = getCmdLineArgumentFloat(argc, (const char **) argv, "device");
+    }
+
+    cudaSetDevice(dev_no);
+#endif
+
     
     double theta = false;
     double lambda = false;
@@ -190,16 +199,6 @@ int main(int argc, char **argv) {
 	}      
     }
 
-    if (checkCmdLineFlag(argc, (const char **) argv, "device")){
-	dev_no = getCmdLineArgumentFloat(argc, (const char **) argv, "device");
-    }
-
-    if (checkCmdLineFlag(argc, (const char **) argv, "cuda")){
-	cuda_acceleration = getCmdLineArgumentFloat(argc, (const char **) argv, "cuda");
-    }
-
-
-    cudaSetDevice(dev_no);
 
     struct sep_kernel_data *sepkern_uv = (struct sep_kernel_data *)malloc(sizeof(struct sep_kernel_data));
     struct sep_kernel_data *sepkern_w = (struct sep_kernel_data*)malloc(sizeof(struct sep_kernel_data));
@@ -241,7 +240,7 @@ int main(int argc, char **argv) {
 	std::complex<double> visd = predict_visibility(points,pu,pv,pw);
 	std::cout << "DFT Prediction: " << visq << "\n";
 	std::cout << " : " << visd << "\n";
-	std::complex<double> vis = wstack_predict(theta,
+	std::complex<double> vis = wstack_predict_test(theta,
 						  lambda,
 						  points,
 						  pu,
