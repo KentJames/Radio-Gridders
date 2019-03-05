@@ -16,7 +16,7 @@
 #include "cuda.h"
 #include "cuda_runtime_api.h"
 
-#include "hdf5_h.h"
+#include "hdf5.cuh"
 
 
 /****************************

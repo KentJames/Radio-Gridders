@@ -1,16 +1,11 @@
 #ifndef HDF5_H
 #define HDF5_H
-
-#include <cuComplex.h>
-#include "cuda.h"
-#include "cuda_runtime_api.h"
-
-
+#include <complex.h>
+#include <stdint.h>
 //HDF5 is C, so lets avoid the name mangling by the c++ compiler.
 #ifdef __cplusplus
 extern "C" {
   #endif
-
 
   static const double c = 299792458.0;
 
@@ -36,19 +31,20 @@ extern "C" {
     int number_of_vis;
   };
 
-  
-  // Visibility data
-  struct bl_data
-  {
+
+struct bl_data
+{
     int antenna1, antenna2;
     int time_count;
     int freq_count;
     double *time;
     double *freq;
-    double *uvw;
+    double *uvw; // in m
     double _Complex *vis;
-    double _Complex *awkern;
 
+    // temporary from here
+
+    double _Complex *awkern;
     double u_min, u_max; // in m
     double v_min, v_max; // in m
     double w_min, w_max; // in m
@@ -56,13 +52,21 @@ extern "C" {
     double f_min, f_max; // in Hz
 
     uint64_t flops;
-  };
-  struct vis_data
-  {
+};
+struct vis_data
+{
     int antenna_count;
     int bl_count;
     struct bl_data *bl;
-  };
+};
+
+// Antenna/station configuration
+struct ant_config
+{
+    int ant_count;
+    char *name;
+    double *xyz; // x geographical east, z celestial north
+};
 
   // Static W-kernel data
   struct w_kernel
@@ -141,25 +145,10 @@ extern "C" {
 
   int free_vis(struct vis_data *vis);
 
-  int free_vis_CUDA(struct vis_data *vis);
-
-  int load_vis_CUDA(const char *filename, struct vis_data *vis,
-		    double min_len, double max_len);
-
   int load_vis(const char *filename, struct vis_data *vis,
 	       double min_len, double max_len);
 
-  void flatten_visibilities_CUDA(struct vis_data *vis, struct flat_vis_data *flat_vis);
-
-    int load_sep_kern(const char *filename, struct sep_kernel_data *sepkern);
-    
-  //You must compile both hdf5.c AND your kernel with -DVAR_W_KERN to use variable w-kernels.
-#ifdef VAR_W_KERN
-  int load_wkern_CUDA(const char *filename, double theta, struct var_w_kernel_data *wkern);
-#else
-  int load_wkern_CUDA(const char *filename, double theta, struct w_kernel_data *wkern);
-#endif
-
+  int load_sep_kern(const char *filename, struct sep_kernel_data *sepkern);
 #ifdef VAR_W_KERN
   int load_wkern(const char *filename, double theta, struct var_w_kernel_data *wkern);
 #else
