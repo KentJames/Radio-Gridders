@@ -53,7 +53,9 @@ int main(int argc, char **argv) {
     //Get information on GPU's in system.
     std::cout << "CUDA System Information: \n\n";
     int numberofgpus;
-    
+    int dev_no = 0;
+    int cuda_acceleration = 0;
+
   
     cudaGetDeviceCount(&numberofgpus);
     std::cout << " Number of GPUs Detected: " << numberofgpus << "\n\n";
@@ -82,11 +84,11 @@ int main(int argc, char **argv) {
     */
 
     if (checkCmdLineFlag(argc, (const char **) argv, "cuda")){
-	cuda_acceleration = getCmdLineArgumentFloat(argc, (const char **) argv, "cuda");
+	cuda_acceleration = getCmdLineArgumentInt(argc, (const char **) argv, "cuda");
     }
 
-     if (checkCmdLineFlag(argc, (const char **) argv, "device")){
-	 dev_no = getCmdLineArgumentFloat(argc, (const char **) argv, "device");
+    if (checkCmdLineFlag(argc, (const char **) argv, "device")){
+	dev_no = getCmdLineArgumentInt(argc, (const char **) argv, "device");
     }
 
     cudaSetDevice(dev_no);
@@ -107,9 +109,7 @@ int main(int argc, char **argv) {
     char *sepkern_lm_file = NULL;
     char *sepkern_n_file = NULL;
 
-    int dev_no = 0;
-    int cuda_acceleration = 0;
-
+    
   
     if (checkCmdLineFlag(argc, (const char **) argv, "theta") == 0 ||
 	checkCmdLineFlag(argc, (const char **) argv, "lambda") == 0) {
@@ -118,8 +118,8 @@ int main(int argc, char **argv) {
 	return 0;
     }
     else {
-	theta =  getCmdLineArgumentFloat(argc, (const char **) argv, "theta");
-	lambda = getCmdLineArgumentFloat(argc, (const char **) argv, "lambda");
+	theta =  getCmdLineArgumentDouble(argc, (const char **) argv, "theta");
+	lambda = getCmdLineArgumentDouble(argc, (const char **) argv, "lambda");
 	if (theta < 0) {
 	    std::cout << "Invalid theta value specified\n";
 	    return 0;
@@ -192,7 +192,7 @@ int main(int argc, char **argv) {
 	return 0;
     }
     else {
-	mode = getCmdLineArgumentFloat(argc, (const char **) argv, "mode");
+	mode = getCmdLineArgumentDouble(argc, (const char **) argv, "mode");
 	if (mode < 0) {
 	    std::cout << "Invalid theta value specified\n";
 	    return 0;
@@ -229,9 +229,9 @@ int main(int argc, char **argv) {
 	    return 0;
 	}
 	else {
-	    pu =  getCmdLineArgumentFloat(argc, (const char **) argv, "pu");
-	    pv =  getCmdLineArgumentFloat(argc, (const char **) argv, "pv");
-	    pw =  getCmdLineArgumentFloat(argc, (const char **) argv, "pw");
+	    pu =  getCmdLineArgumentDouble(argc, (const char **) argv, "pu");
+	    pv =  getCmdLineArgumentDouble(argc, (const char **) argv, "pv");
+	    pw =  getCmdLineArgumentDouble(argc, (const char **) argv, "pw");
 	}
 	std::cout << "##### W Stacking #####\n";
 	std::vector<double> points = generate_random_points(npts, theta, lambda);
@@ -240,7 +240,7 @@ int main(int argc, char **argv) {
 	std::complex<double> visd = predict_visibility(points,pu,pv,pw);
 	std::cout << "DFT Prediction: " << visq << "\n";
 	std::cout << " : " << visd << "\n";
-	std::complex<double> vis = wstack_predict_test(theta,
+	std::complex<double> vis = wstack_predict(theta,
 						  lambda,
 						  points,
 						  pu,

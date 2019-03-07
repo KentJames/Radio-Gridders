@@ -255,6 +255,48 @@ inline float getCmdLineArgumentFloat(const int argc, const char **argv, const ch
     }
 }
 
+inline double getCmdLineArgumentDouble(const int argc, const char **argv, const char *string_ref)
+{
+    bool bFound = false;
+    double value = -1;
+
+    if (argc >= 1)
+    {
+        for (int i=1; i < argc; i++)
+        {
+            int string_start = stringRemoveDelimiter('-', argv[i]);
+            const char *string_argv = &argv[i][string_start];
+            int length = (int)strlen(string_ref);
+
+            if (!STRNCASECMP(string_argv, string_ref, length))
+            {
+                if (length+1 <= (int)strlen(string_argv))
+                {
+                    int auto_inc = (string_argv[length] == '=') ? 1 : 0;
+                    value = (double)atof(&string_argv[length + auto_inc]);
+                }
+                else
+                {
+                    value = 0.f;
+                }
+
+                bFound = true;
+                continue;
+            }
+        }
+    }
+
+    if (bFound)
+    {
+        return value;
+    }
+    else
+    {
+        return 0;
+    }
+}
+
+
 inline bool getCmdLineArgumentString(const int argc, const char **argv,
                                      const char *string_ref, char **string_retval)
 {
