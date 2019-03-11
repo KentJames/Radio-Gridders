@@ -554,6 +554,16 @@ int load_sep_kern(const char *filename, struct sep_kernel_data *sepkern)
         return 1;
     }
 
+    hid_t attr = H5Aopen(sepkern_f, "du", H5P_DEFAULT);
+    H5Aread(attr,H5Aget_type(attr),&sepkern->du);
+    
+    attr = H5Aopen(sepkern_f, "dw", H5P_DEFAULT);
+    H5Aread(attr,H5Aget_type(attr),&sepkern->dw);
+
+    attr = H5Aopen(sepkern_f, "x0", H5P_DEFAULT);
+    H5Aread(attr,H5Aget_type(attr),&sepkern->x0);
+
+    
     // Check that it has the expected format
     hsize_t dims[4];
     if (H5Sget_simple_extent_ndims(H5Dget_space(dset)) != 2 ||

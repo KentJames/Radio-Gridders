@@ -39,7 +39,7 @@ struct bl_data
     int freq_count;
     double *time;
     double *freq;
-    double *uvw; // in m
+    double *uvw_m; // in m
     double _Complex *vis;
 
     // temporary from here
@@ -81,6 +81,9 @@ struct ant_config
     double *data; // Assumed to be real
     int size;
     int oversampling;
+    double du;
+    double dw;
+    double x0;
   };
 
 
