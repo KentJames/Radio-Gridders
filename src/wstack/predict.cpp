@@ -417,9 +417,6 @@ void fft_shift_2Darray(vector2D<std::complex<double>>& array){
 
 }
 
-//TODO: Put in x0 values instead of assuming x0=0.25
-//TODO: Other forms of anti-aliasing functions.
-//TODO: Oversampling.
 //TODO: There is a subtle bug raising error. Where is it...
 std::complex<double> wstack_predict(double theta,
 				    double lam,
@@ -429,8 +426,8 @@ std::complex<double> wstack_predict(double theta,
 				    double w,
 				    double du, // Sze-Tan Optimum Spacing in U/V
 				    double dw, // Sze-Tan Optimum Spacing in W
-				    double aa_support_uv,
-				    double aa_support_w,
+				    int aa_support_uv,
+				    int aa_support_w,
 				    double x0,
 				    struct sep_kernel_data *grid_conv_uv,
 				    struct sep_kernel_data *grid_conv_w,
@@ -457,28 +454,27 @@ std::complex<double> wstack_predict(double theta,
     
     
     // We double our grid size to get the optimal spacing.
-
-    std::cout << "x0ih: " << x0ih << "\n";
-    std::cout << "oversampg: " << oversampg << "\n";
     vector3D<std::complex<double>> wstacks(oversampg,oversampg,w_planes,{0.0,0.0});
     vector2D<std::complex<double>> skyp(oversampg,oversampg,{0.0,0.0});
     vector2D<std::complex<double>> plane(oversampg,oversampg,{0.0,0.0});
     fftw_plan plan;
-    
+    std::cout << "Planning fft's... " << std::flush;
     plan = fftw_plan_dft_2d(2*grid_size,2*grid_size,
     			    reinterpret_cast<fftw_complex*>(skyp.dp()),
      			    reinterpret_cast<fftw_complex*>(plane.dp()),
      			    FFTW_FORWARD,
      			    FFTW_MEASURE);  
-
+    std::cout << "done\n" << std::flush;
     skyp.clear();
     plane.clear();
+    std::cout << "Generating sky from random points... " << std::flush;
     generate_sky(points,skyp,theta,lam,du,dw,x0,grid_corr_lm,grid_corr_n);    
-
+    std::cout << "done\n" << std::flush;
     fft_shift_2Darray(skyp);
     fft_shift_2Darray(wtransfer);
     multiply_fresnel_pattern(wtransfer,skyp,(std::floor(-w_planes/2)));
 
+    std::cout << "W-Stacker: \n";
     std::cout << std::setprecision(15);
     for(int i = 0; i < w_planes; ++i){
 

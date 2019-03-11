@@ -33,28 +33,28 @@ std::complex<double> wstack_predict(double theta,
 				    double w,
 				    double du, // Sze-Tan Optimum Spacing in U/V
 				    double dw, // Sze-Tan Optimum Spacing in W
-				    double aa_support_uv,
-				    double aa_support_w,
+				    int aa_support_uv,
+				    int aa_support_w,
 				    double x0,
 				    struct sep_kernel_data *grid_conv_uv,
 				    struct sep_kernel_data *grid_conv_w,
 				    struct sep_kernel_data *grid_corr_lm,
 				    struct sep_kernel_data *grid_corr_n);
 
-std::complex<double> wstack_predict_test(double theta,
-					 double lam,
-					 const std::vector<double>& points,
-					 double u,
-					 double v,
-					 double w,
-					 double du, // Sze-Tan Optimum Spacing in U/V
-					 double dw, // Sze-Tan Optimum Spacing in W
-					 double aa_support_uv,
-					 double aa_support_w,
-					 struct sep_kernel_data *grid_conv_uv,
-					 struct sep_kernel_data *grid_conv_w,
-					 struct sep_kernel_data *grid_corr_lm,
-					 struct sep_kernel_data *grid_corr_n);
+// std::complex<double> wstack_predict_test(double theta,
+// 					 double lam,
+// 					 const std::vector<double>& points,
+// 					 double u,
+// 					 double v,
+// 					 double w,
+// 					 double du, // Sze-Tan Optimum Spacing in U/V
+// 					 double dw, // Sze-Tan Optimum Spacing in W
+// 					 double aa_support_uv,
+// 					 double aa_support_w,
+// 					 struct sep_kernel_data *grid_conv_uv,
+// 					 struct sep_kernel_data *grid_conv_w,
+// 					 struct sep_kernel_data *grid_corr_lm,
+// 					 struct sep_kernel_data *grid_corr_n);
 
 
 

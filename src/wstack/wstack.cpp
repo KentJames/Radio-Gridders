@@ -214,8 +214,14 @@ int main(int argc, char **argv) {
     load_sep_kern(sepkern_lm_file, sepkern_lm);
     std::cout << "Loading AA Kernel...";
     load_sep_kern(sepkern_n_file, sepkern_n);
-    
-    
+
+
+    double du = sepkern_uv->du;
+    double dw = sepkern_w->dw;
+    double x0 = sepkern_lm->x0;
+
+    int support_uv = sepkern_uv->size;
+    int support_w = sepkern_w->size;
     /* 
        PREDICT
     */
@@ -246,11 +252,11 @@ int main(int argc, char **argv) {
 						  pu,
 						  pv,
 						  pw,
-						  5.0,
-						  49.9374216792,
-						  8,
-						  4,
-						  0.25,
+						  du,
+						  dw,
+						  support_uv,
+						  support_w,
+						  x0,
 						  sepkern_uv,
 						  sepkern_w,
 						  sepkern_lm,
