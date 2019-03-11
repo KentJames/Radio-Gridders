@@ -250,6 +250,7 @@ int main(int argc, char **argv) {
 						  49.9374216792,
 						  8,
 						  4,
+						  0.25,
 						  sepkern_uv,
 						  sepkern_w,
 						  sepkern_lm,

@@ -175,10 +175,6 @@ void fft_2d_DIT_radix2(vector2D<std::complex<double>>& array,
 }
 
 
-
-
-
-
 std::complex<double> predict_visibility(const std::vector<double>& points,
 					double u,
 					double v,
@@ -256,17 +252,61 @@ std::vector<double> generate_random_points(int npts,
     return points;
 }
 
-//Quantises our sources onto the sky.
-vector2D<std::complex<double>> generate_sky(const std::vector<double>& points,
-					    double theta,
-					    double lam,
-					    double du,
-					    double dw,
-					    struct sep_kernel_data *grid_corr_lm,
-					    struct sep_kernel_data *grid_corr_n){
+
+
+vector2D<std::complex<double>> generate_fresnel(double theta,
+						double lam,
+						double dw,
+						double x0){
+
+    int grid_size = static_cast<int>(std::floor(theta * lam));
+    double x0ih = std::round(0.5/x0);
+    int oversampg = static_cast<int>(x0ih * grid_size);
+    assert(oversampg > grid_size);
+    int gd = (oversampg - grid_size)/2;
+
+    std::cout << "xoih: " << x0ih << "\n";
+    std::cout << "oversampg: " << oversampg << "\n";
+    std::cout << "gd: " << gd << "\n";
+
+    vector2D<std::complex<double>> wtransfer(oversampg,oversampg,{0.0,0.0});
     
-    double grid_size = std::floor(theta * lam);
-    vector2D<std::complex<double>> sky(grid_size, grid_size,{0.0,0.0});
+    for (int y=0; y < grid_size; ++y){
+	for (int x=0; x < grid_size; ++x){
+	    double l = theta * ((double)x - grid_size / 2) / grid_size;
+	    double m = theta * ((double)y - grid_size / 2) / grid_size;
+	    double ph = dw * (1.0 - std::sqrt(1.0 - l*l - m*m));
+	    
+	    std::complex<double> wtrans = {0.0, 2 * PI * ph};
+	    int xo = x+gd;
+	    int yo = y+gd;
+	    wtransfer(xo,yo) = std::exp(wtrans);
+	}
+
+	
+    }
+
+    return wtransfer;
+}
+
+
+//Quantises our sources onto the sky.
+void generate_sky(const std::vector<double>& points,
+		  vector2D<std::complex<double>>& sky, // We do this by reference because of FFTW planner.
+		  double theta,
+		  double lam,
+		  double du,
+		  double dw,
+		  double x0,
+		  struct sep_kernel_data *grid_corr_lm,
+		  struct sep_kernel_data *grid_corr_n){
+    
+    
+    int grid_size = static_cast<int>(std::floor(theta * lam));
+    double x0ih = 0.5/x0;
+    int oversampg = static_cast<int>(std::round(x0ih * grid_size));
+    assert(oversampg > grid_size);
+    int gd = (oversampg - grid_size)/2;
 
     int npts = points.size()/2;
 
@@ -307,24 +347,31 @@ vector2D<std::complex<double>> generate_sky(const std::vector<double>& points,
 
 	std::complex<double> source = {1.0,0.0};
 	source = source / a;
-	sky(lc,mc) += source; // Sky needs to be transposed, not quite sure why.
+	int lco = gd+lc;
+	int mco = gd+mc;
+	sky(lco,mco) += source; // Sky needs to be transposed, not quite sure why.
     }
     
-    return sky;
 }
 
 void multiply_fresnel_pattern(vector2D<std::complex<double>>& fresnel,
 			      vector2D<std::complex<double>>& sky,
 			      int t){
-    
+    assert(fresnel.size() == sky.size());
     std::complex<double> ft = {0.0,0.0};
     std::complex<double> st = {0.0,0.0};
+    std::complex<double> test = {0.0,0.0};
     for (int i = 0; i < sky.size(); ++i){
 	ft = fresnel(i);
 	st = sky(i);
+
+	
+	
 	if (t == 1){
 	    sky(i) = st * ft;
 	} else {
+	    
+	    if (ft == test) continue; // Otherwise std::pow goes a bit fruity
 	    sky(i) = st  * std::pow(ft,t);
 	}
     }
@@ -332,12 +379,15 @@ void multiply_fresnel_pattern(vector2D<std::complex<double>>& fresnel,
 
 
 void zero_pad_2Darray(const vector2D<std::complex<double>>& array,
-		      vector2D<std::complex<double>>& padded_array){
+		      vector2D<std::complex<double>>& padded_array,
+		      double x0){
 
-    int i0 = padded_array.d1s()/4;
-    int i1 = 3*(padded_array.d1s()/4);
-    int j0 = padded_array.d2s()/4;
-    int j1 = 3*(padded_array.d2s()/4);
+    int x0i = static_cast<int>(std::round(1.0/x0));
+    std::cout << "xoi: " << x0i << "\n";
+    int i0 = padded_array.d1s()/x0i;
+    int i1 = 3*(padded_array.d1s()/x0i);
+    int j0 = padded_array.d2s()/x0i;
+    int j1 = 3*(padded_array.d2s()/x0i);
     for(int j = j0; j < j1; ++j){
 	for(int i = i0; i < i1; ++i){
 	    padded_array(i,j) = array(i-i0,j-j0);
@@ -381,29 +431,22 @@ std::complex<double> wstack_predict(double theta,
 				    double dw, // Sze-Tan Optimum Spacing in W
 				    double aa_support_uv,
 				    double aa_support_w,
+				    double x0,
 				    struct sep_kernel_data *grid_conv_uv,
 				    struct sep_kernel_data *grid_conv_w,
 				    struct sep_kernel_data *grid_corr_lm,
 				    struct sep_kernel_data *grid_corr_n){
 
-    int grid_size = std::floor(theta * lam);
-
+    
+    int grid_size = static_cast<int>(std::floor(theta * lam));
+    double x0ih = std::round(0.5/x0);
+    int oversampg = static_cast<int>(x0ih * grid_size);
+    assert(oversampg > grid_size);
+    int gd = (oversampg - grid_size)/2;
+    
     // Fresnel Pattern
     
-    vector2D<std::complex<double>> wtransfer(grid_size,grid_size,{0.0,0.0});
-    
-    for (int y=0; y < grid_size; ++y){
-	for (int x=0; x < grid_size; ++x){
-	    double l = theta * ((double)x - grid_size / 2) / grid_size;
-	    double m = theta * ((double)y - grid_size / 2) / grid_size;
-	    double ph = dw * (1.0 - std::sqrt(1.0 - l*l - m*m));
-	    
-	    std::complex<double> wtrans = {0.0, 2 * PI * ph};
-	    wtransfer(x,y) = std::exp(wtrans);
-	}
-
-	
-    }
+    vector2D<std::complex<double>> wtransfer = generate_fresnel(theta,lam,dw,x0);
     // Work out range of W-Planes
     
     double max_w = std::sin(theta/2) * std::sqrt(2*(grid_size*grid_size));
@@ -412,19 +455,14 @@ std::complex<double> wstack_predict(double theta,
     std::cout << "Max W: " << max_w << "\n";
     std::cout << "W Planes: " << w_planes << "\n";
     
-    vector2D<std::complex<double>> sky = generate_sky(points,
-						      theta,
-						      lam,
-						      du,
-						      dw,
-						      grid_corr_lm,
-						      grid_corr_n);
-
+    
     // We double our grid size to get the optimal spacing.
-    vector3D<std::complex<double>> wstacks(2*grid_size,2*grid_size,w_planes,{0.0,0.0});
-    vector2D<std::complex<double>> skyp(2*grid_size,2*grid_size,{0.0,0.0});
-    vector2D<std::complex<double>> plane(2*grid_size,2*grid_size,{0.0,0.0});
-    vector2D<std::complex<double>> planep(grid_size,grid_size,{0.0,0.0});
+
+    std::cout << "x0ih: " << x0ih << "\n";
+    std::cout << "oversampg: " << oversampg << "\n";
+    vector3D<std::complex<double>> wstacks(oversampg,oversampg,w_planes,{0.0,0.0});
+    vector2D<std::complex<double>> skyp(oversampg,oversampg,{0.0,0.0});
+    vector2D<std::complex<double>> plane(oversampg,oversampg,{0.0,0.0});
     fftw_plan plan;
     
     plan = fftw_plan_dft_2d(2*grid_size,2*grid_size,
@@ -432,16 +470,21 @@ std::complex<double> wstack_predict(double theta,
      			    reinterpret_cast<fftw_complex*>(plane.dp()),
      			    FFTW_FORWARD,
      			    FFTW_MEASURE);  
-    
-    multiply_fresnel_pattern(wtransfer,sky,(std::floor(-w_planes/2)));
+
+    skyp.clear();
+    plane.clear();
+    generate_sky(points,skyp,theta,lam,du,dw,x0,grid_corr_lm,grid_corr_n);    
+
+    fft_shift_2Darray(skyp);
+    fft_shift_2Darray(wtransfer);
+    multiply_fresnel_pattern(wtransfer,skyp,(std::floor(-w_planes/2)));
 
     std::cout << std::setprecision(15);
     for(int i = 0; i < w_planes; ++i){
 
 	std::cout << "Processing Plane: " << i << "\n";
-
-	zero_pad_2Darray(sky,skyp);
-	fft_shift_2Darray(skyp);
+	
+	
 	fftw_execute(plan);
 	fft_shift_2Darray(plane);
 	
@@ -450,28 +493,27 @@ std::complex<double> wstack_predict(double theta,
 	std::complex<double> *pp = plane.dp();
 	std::memcpy(wp,pp,sizeof(std::complex<double>) * (4*grid_size*grid_size));
 
-	multiply_fresnel_pattern(wtransfer,sky,1);
+	multiply_fresnel_pattern(wtransfer,skyp,1);
 	std::cout << wstacks(2048,2048,i) << "\n";
 	std::cout << predict_visibility_quantized(points,theta,lam,0.0,0.0,(i-std::floor(w_planes/2))*dw) << "\n";
-	skyp.clear();
 	plane.clear();	
 
 
     }
 
-    std::cout << "############\n";
-    std::cout << std::setprecision(15);
-    std::cout << wstacks(2046,2048,5) << "\n";
-    std::cout << wstacks(2000,2096,5) << "\n";
-    std::cout << wstacks(2096,2096,5) << "\n";
-    std::cout << wstacks(2096,2000,5) << "\n";
-    std::cout << wstacks(2000,2000,5) << "\n";
-    std::cout << "############\n";
-    std::cout << predict_visibility_quantized(points,theta,lam,-10.0,0.0,dw) << "\n";
-    std::cout << predict_visibility_quantized(points,theta,lam,-240.0,240.0,dw) << "\n";
-    std::cout << predict_visibility_quantized(points,theta,lam,240.0,240.0,dw) << "\n";
-    std::cout << predict_visibility_quantized(points,theta,lam,240.0,-240.0,dw) << "\n";
-    std::cout << predict_visibility_quantized(points,theta,lam,-240.0,-240.0,dw) << "\n";
+    // std::cout << "############\n";
+    // std::cout << std::setprecision(15);
+    // std::cout << wstacks(2046,2048,5) << "\n";
+    // std::cout << wstacks(2000,2096,5) << "\n";
+    // std::cout << wstacks(2096,2096,5) << "\n";
+    // std::cout << wstacks(2096,2000,5) << "\n";
+    // std::cout << wstacks(2000,2000,5) << "\n";
+    // std::cout << "############\n";
+    // std::cout << predict_visibility_quantized(points,theta,lam,-10.0,0.0,dw) << "\n";
+    // std::cout << predict_visibility_quantized(points,theta,lam,-240.0,240.0,dw) << "\n";
+    // std::cout << predict_visibility_quantized(points,theta,lam,240.0,240.0,dw) << "\n";
+    // std::cout << predict_visibility_quantized(points,theta,lam,240.0,-240.0,dw) << "\n";
+    // std::cout << predict_visibility_quantized(points,theta,lam,-240.0,-240.0,dw) << "\n";
     
 
     // Begin De-convolution process using Sze-Tan Kernels.
@@ -513,67 +555,69 @@ std::complex<double> wstack_predict(double theta,
 }
 
 
-// Why do my FFT's not match the DFT to 1 part in 10^6???
-std::complex<double> wstack_predict_test(double theta,
-					 double lam,
-					 const std::vector<double>& points,
-					 double u,
-					 double v,
-					 double w,
-					 double du, // Sze-Tan Optimum Spacing in U/V
-					 double dw, // Sze-Tan Optimum Spacing in W
-					 double aa_support_uv,
-					 double aa_support_w,
-					 struct sep_kernel_data *grid_conv_uv,
-					 struct sep_kernel_data *grid_conv_w,
-					 struct sep_kernel_data *grid_corr_lm,
-					 struct sep_kernel_data *grid_corr_n){
+// // Why do my FFT's not match the DFT to 1 part in 10^6???
+// std::complex<double> wstack_predict_test(double theta,
+// 					 double lam,
+// 					 const std::vector<double>& points,
+// 					 double u,
+// 					 double v,
+// 					 double w,
+// 					 double du, // Sze-Tan Optimum Spacing in U/V
+// 					 double dw, // Sze-Tan Optimum Spacing in W
+// 					 double aa_support_uv,
+// 					 double aa_support_w,
+// 					 double x0,
+// 					 struct sep_kernel_data *grid_conv_uv,
+// 					 struct sep_kernel_data *grid_conv_w,
+// 					 struct sep_kernel_data *grid_corr_lm,
+// 					 struct sep_kernel_data *grid_corr_n){
 
 
-    int grid_size = std::floor(theta * lam);
+//     int grid_size = std::floor(theta * lam);
 
-    vector2D<std::complex<double>> sky = generate_sky(points,
-						      theta,
-						      lam,
-						      du,
-						      dw,
-						      grid_corr_lm,
-						      grid_corr_n);
+//     vector2D<std::complex<double>> sky = generate_sky(points,
+// 						      theta,
+// 						      lam,
+// 						      du,
+// 						      dw,
+// 						      x0,
+// 						      grid_corr_lm,
+// 						      grid_corr_n);
 
-    vector2D<std::complex<double>> planep(grid_size,grid_size,{0.0,0.0});
-    vector2D<std::complex<double>> skyp(grid_size,grid_size,{0.0,0.0});
-    fftw_plan plan2;
+//     vector2D<std::complex<double>> planep(grid_size,grid_size,{0.0,0.0});
+//     vector2D<std::complex<double>> skyp(grid_size,grid_size,{0.0,0.0});
+//     fftw_plan plan2;
     
-    plan2 = fftw_plan_dft_2d(grid_size,grid_size,
-    			    reinterpret_cast<fftw_complex*>(skyp.dp()),
-    			     reinterpret_cast<fftw_complex*>(planep.dp()),
-     			    FFTW_FORWARD,
-     			    FFTW_ESTIMATE);
-    planep.clear();
-    skyp.clear();
-    fft_shift_2Darray(sky);
-    std::memcpy(skyp.dp(),sky.dp(),sizeof(std::complex<double>) * (grid_size*grid_size));
-    // fft_2d_DIT_radix2(skyp,
-    // 		      grid_size,
-    // 		      grid_size);
+//     plan2 = fftw_plan_dft_2d(grid_size,grid_size,
+//     			    reinterpret_cast<fftw_complex*>(skyp.dp()),
+//     			     reinterpret_cast<fftw_complex*>(planep.dp()),
+//      			    FFTW_FORWARD,
+//      			    FFTW_ESTIMATE);
+//     planep.clear();
+//     skyp.clear();
+//     fft_shift_2Darray(sky);
+//     std::memcpy(skyp.dp(),sky.dp(),sizeof(std::complex<double>) * (grid_size*grid_size));
+//     // fft_2d_DIT_radix2(skyp,
+//     // 		      grid_size,
+//     // 		      grid_size);
 
-    fftw_execute(plan2);
-    fft_shift_2Darray(skyp);
-    fft_shift_2Darray(planep);
+//     fftw_execute(plan2);
+//     fft_shift_2Darray(skyp);
+//     fft_shift_2Darray(planep);
     
-    std::cout << "############\n";
-    std::cout << std::setprecision(15);
-    std::cout << planep(1023,1024) << "\n";
-    std::cout << planep(1000,1048) << "\n";
-    std::cout << planep(1048,1048) << "\n";
-    std::cout << planep(1048,1000) << "\n";
-    std::cout << planep(1000,1000) << "\n";
-    std::cout << "############\n";
-    std::cout << predict_visibility_quantized(points,theta,lam,-10.0,0.0,0.0) << "\n";
-    std::cout << predict_visibility_quantized(points,theta,lam,-240.0,240.0,0.0) << "\n";
-    std::cout << predict_visibility_quantized(points,theta,lam,240.0,240.0,0.0) << "\n";
-    std::cout << predict_visibility_quantized(points,theta,lam,240.0,-240.0,0.0) << "\n";
-    std::cout << predict_visibility_quantized(points,theta,lam,-240.0,-240.0,0.0) << "\n";
+//     std::cout << "############\n";
+//     std::cout << std::setprecision(15);
+//     std::cout << planep(1023,1024) << "\n";
+//     std::cout << planep(1000,1048) << "\n";
+//     std::cout << planep(1048,1048) << "\n";
+//     std::cout << planep(1048,1000) << "\n";
+//     std::cout << planep(1000,1000) << "\n";
+//     std::cout << "############\n";
+//     std::cout << predict_visibility_quantized(points,theta,lam,-10.0,0.0,0.0) << "\n";
+//     std::cout << predict_visibility_quantized(points,theta,lam,-240.0,240.0,0.0) << "\n";
+//     std::cout << predict_visibility_quantized(points,theta,lam,240.0,240.0,0.0) << "\n";
+//     std::cout << predict_visibility_quantized(points,theta,lam,240.0,-240.0,0.0) << "\n";
+//     std::cout << predict_visibility_quantized(points,theta,lam,-240.0,-240.0,0.0) << "\n";
     
-    return {0.0,0.0};
-}
+//     return {0.0,0.0};
+// }
