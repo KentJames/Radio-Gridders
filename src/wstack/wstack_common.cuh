@@ -22,7 +22,9 @@ std::complex<double> predict_visibility_quantized(const std::vector<double>& poi
 						  double v,
 						  double w);
 
-std::vector<double> generate_random_points(int npts, double theta, double lam);
+std::vector<double> generate_random_points(int npts, double theta);
+
+std::vector<double> generate_testcard_dataset(double theta);
 
 
 std::complex<double> wstack_predict(double theta,

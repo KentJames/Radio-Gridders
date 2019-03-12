@@ -1,14 +1,14 @@
 NVCC = nvcc
-CC = gcc
-CXX = g++
+CC = clang
+CXX = clang++
 
-override CXXFLAGS +=-std=c++11 -I../common
+override CXXFLAGS +=-std=c++14 -I../common
 override LDFLAGS += -lhdf5 -lm  -L../common -lhdf5_r -lfftw3
 override CUDA_FLAGS += 
 
 BINDIR = ./
 
-all: wstack.out
+all: wstack.out libpredict.a
 
 
 clean:
@@ -16,12 +16,14 @@ clean:
 	rm -f *.out
 
 
-wstack.out: wstack.o predict.o
+wstack.out: wstack.o predict.o 
 	$(CXX) $^ -o ../../bin/wstack.out $(LDFLAGS)
-
 
 wstack.o: wstack.cpp
 	$(CXX) -c $< -o $@ $(CXXFLAGS)
 
 predict.o: predict.cpp
 	$(CXX) -c $< -o $@ $(CXXFLAGS)
+
+libpredict.a: predict.o
+	ar rcs $@ $^

@@ -224,7 +224,7 @@ int main(int argc, char **argv) {
     int support_w = sepkern_w->size;
     /* 
        PREDICT
-    */
+    */   
     if (mode == 0){
 	
 	if (checkCmdLineFlag(argc, (const char **) argv, "pu") == 0 ||
@@ -240,7 +240,7 @@ int main(int argc, char **argv) {
 	    pw =  getCmdLineArgumentDouble(argc, (const char **) argv, "pw");
 	}
 	std::cout << "##### W Stacking #####\n";
-	std::vector<double> points = generate_random_points(npts, theta, lambda);
+	std::vector<double> points = generate_random_points(npts, theta);
 	std::cout << "Visibility at: " << pu << " " << pv << " " << pw << "\n";
 	std::complex<double> visq = predict_visibility_quantized(points,theta,lambda,pu,pv,pw);
 	std::complex<double> visd = predict_visibility(points,pu,pv,pw);

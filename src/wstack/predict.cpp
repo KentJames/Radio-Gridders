@@ -15,8 +15,8 @@
   Predicts a visibility at a particular point using the direct fourier transform.
  */
 
-const double PI  = std::atan(1)*4;
-const float  PI_F= std::atan(1)*4;
+template<class T>
+constexpr T PI = T(3.1415926535897932385L);
 
 template <typename T>
 class vector2D {
@@ -143,7 +143,7 @@ void fft_1d_DIT_radix2(std::complex<double> *input, int fft_size){
     for(int i = 0; i < fft_size/2; ++i){
 	std::complex<double> even = input[i];
 	std::complex<double> odd =  input[i + fft_size/2];
-	std::complex<double> ph = {0.0,-2 * PI * i/fft_size};
+	std::complex<double> ph = {0.0,-2 * PI<double> * i/fft_size};
 	std::complex<double> twiddle = std::exp(ph);
 	input[i] = even + twiddle * odd;
 	input[i + fft_size/2] = even - twiddle * odd;
@@ -187,7 +187,7 @@ std::complex<double> predict_visibility(const std::vector<double>& points,
 	double m = points[2*i + 1];
 	double n = std::sqrt(1 - l*l - m*m) - 1.0;	
 	
-	std::complex<double> phase = {0,-2 * PI * (u*l + v*m + w*n)};
+	std::complex<double> phase = {0,-2 * PI<double> * (u*l + v*m + w*n)};
 	std::complex<double> amp = {1.0,0.0};
 	vis += amp * std::exp(phase);
 	
@@ -227,7 +227,7 @@ std::complex<double> predict_visibility_quantized(const std::vector<double>& poi
 	// double mq = theta * (((double)mc/(double)grid_size) - 0.5);
 	double n = std::sqrt(1.0 - lq*lq - mq*mq) - 1.0;
 
-	std::complex<double> phase = {0,-2 * PI * (u*lq + v*mq + w*n)};
+	std::complex<double> phase = {0,-2 * PI<double> * (u*lq + v*mq + w*n)};
 
 	vis += 1.0 * std::exp(phase);
 	
@@ -236,8 +236,7 @@ std::complex<double> predict_visibility_quantized(const std::vector<double>& poi
 }
 
 std::vector<double> generate_random_points(int npts,
-					   double theta,
-					   double lam){
+					   double theta){
 
     std::vector<double> points(2 * npts,0.0);
     std::srand ( time(NULL) );
@@ -252,6 +251,19 @@ std::vector<double> generate_random_points(int npts,
     return points;
 }
 
+std::vector<double> generate_testcard_dataset(double theta){
+
+    std::vector<double> points = {0.95,0.95,-0.95,-0.95,0.95,-0.95,-0.95,0.95,0.0,0.5,0.0,-0.5,0.5,0.0,-0.5,0.0};
+    std::transform(points.begin(), points.end(), points.begin(),
+		   [theta](double c) -> double { return c * (theta/2);});
+
+    for(int i = 0; i < points.size(); ++i){
+	std::cout << points[i] << " ";
+       
+    }
+    std::cout << "\n";
+    return points;
+}
 
 
 vector2D<std::complex<double>> generate_fresnel(double theta,
@@ -277,7 +289,7 @@ vector2D<std::complex<double>> generate_fresnel(double theta,
 	    double m = theta * ((double)y - grid_size / 2) / grid_size;
 	    double ph = dw * (1.0 - std::sqrt(1.0 - l*l - m*m));
 	    
-	    std::complex<double> wtrans = {0.0, 2 * PI * ph};
+	    std::complex<double> wtrans = {0.0, 2 * PI<double> * ph};
 	    int xo = x+gd;
 	    int yo = y+gd;
 	    wtransfer(xo,yo) = std::exp(wtrans);
@@ -467,7 +479,7 @@ std::complex<double> wstack_predict(double theta,
     std::cout << "done\n" << std::flush;
     skyp.clear();
     plane.clear();
-    std::cout << "Generating sky from random points... " << std::flush;
+    std::cout << "Generating sky... " << std::flush;
     generate_sky(points,skyp,theta,lam,du,dw,x0,grid_corr_lm,grid_corr_n);    
     std::cout << "done\n" << std::flush;
     fft_shift_2Darray(skyp);
