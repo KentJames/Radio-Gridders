@@ -83,10 +83,14 @@ int main(int argc, char **argv){
     int support_uv = sepkern_uv->size;
     int support_w = sepkern_w->size;
     
-    
+    std::cout << " TESTING WITH TEST-CARD: \n";
     std::vector<double> testcard_points = generate_testcard_dataset(theta);
     // std::vector<double> testcard_points = {0.0,0.0};
 
+
+
+
+    
     std::complex<double> viswstack = run_test_predict(testcard_points, theta, lambda,
 						      0.0,0.0,0.0,
 						      du, dw,
@@ -127,7 +131,49 @@ int main(int argc, char **argv){
     std::cout << "Error: " << error << "\n";
    
 
+    std::cout << "\nOdd corner cases: \n";
 
+    std::vector<double> cornercase = {0,1.0/lambda};
+
+    viswstack = run_test_predict(cornercase, theta, lambda,
+				 0.0,0.0,0.0,
+				 du, dw,
+				 support_uv, support_w,
+				 x0,
+				 sepkern_uv,
+				 sepkern_w,
+				 sepkern_lm,
+				 sepkern_n
+				 );
+    vis_dft = predict_visibility_quantized(cornercase,
+					   theta,
+					   lambda,
+					   50.0, 130.0, dw+0.00002);
+    error = std::abs(viswstack - vis_dft) / (testcard_points.size()/2);
+    std::cout << "W-Stack Prediction: " << viswstack << "\n";
+    std::cout << "DFT Prediction: " << vis_dft << "\n";
+    std::cout << "Error: " << error << "\n";
+    
+    viswstack = run_test_predict(cornercase, theta, lambda,
+				 50.0,130.0,dw+0.00002,
+				 du, dw,
+				 support_uv, support_w,
+				 x0,
+				 sepkern_uv,
+				 sepkern_w,
+				 sepkern_lm,
+				 sepkern_n
+				 );
+    vis_dft = predict_visibility_quantized(cornercase,
+					   theta,
+					   lambda,
+					   50.0, 130.0, dw+0.00002);
+    error = std::abs(viswstack - vis_dft) / (testcard_points.size()/2);
+    std::cout << "W-Stack Prediction: " << viswstack << "\n";
+    std::cout << "DFT Prediction: " << vis_dft << "\n";
+    std::cout << "Error: " << error << "\n";
+   
+    
     return 0;
 
 }
