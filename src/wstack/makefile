@@ -16,8 +16,8 @@ clean:
 	rm -f *.out
 
 
-wstack.out: wstack.o predict.o 
-	$(CXX) $^ -o ../../bin/wstack.out $(LDFLAGS)
+wstack.out: wstack.o libpredict.a
+	$(CXX) $^ -o ../../bin/wstack.out $(LDFLAGS) -L ./ -lpredict
 
 wstack.o: wstack.cpp
 	$(CXX) -c $< -o $@ $(CXXFLAGS)

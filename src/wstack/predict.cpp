@@ -10,105 +10,11 @@
 #include <random>
 #include <fftw3.h>
 
-#include "wstack_common.cuh"
+#include "wstack_common.h"
 /*
   Predicts a visibility at a particular point using the direct fourier transform.
  */
 
-template<class T>
-constexpr T PI = T(3.1415926535897932385L);
-
-template <typename T>
-class vector2D {
-public:
-
-    vector2D(size_t d1=0, size_t d2=0, T const & t=T()) :
-        d1(d1), d2(d2), data(d1*d2, t)
-    {}
-
-    T & operator()(size_t i, size_t j) {
-        return data[j*d1 + i];
-    }
-
-    T const & operator()(size_t i, size_t j) const {
-        return data[j*d1 + i];
-    }
-    
-    T & operator()(size_t i) {
-        return data[i];
-    }
-
-    T const & operator()(size_t i) const {
-        return data[i];
-    }
-
-    size_t size(){ return d1*d2; }
-    size_t d1s(){ return d1; }
-    size_t d2s(){ return d2; }
-    T* dp(){ return data.data();}
-
-    void clear(){
-	std::fill(data.begin(), data.end(), 0);
-    }
-
-    void transpose(){
-
-	std::vector<T> datat(d1*d2,0);
-	for(int j = 0; j < d1; ++j){
-	    for(int i = 0; i < d2; ++i){
-		datat[i*d2 + j] = data[j*d1 + i];
-	    }
-	}
-
-	data = datat;
-    }
-
-private:
-    size_t d1,d2;
-    
-    std::vector<T> data;
-};
-
-
-template <typename T>
-class vector3D {
-public:
-    vector3D(size_t d1=0, size_t d2=0, size_t d3=0, T const & t=T()) :
-        d1(d1), d2(d2), d3(d3), data(d1*d2*d3, t)
-    {}
-
-    T & operator()(size_t i, size_t j, size_t k) {
-        return data[k*d1*d2 + j*d1 + i];
-    }
-
-    T const & operator()(size_t i, size_t j, size_t k) const {
-        return data[k*d1*d2 + j*d1 + i];
-    }
-
-    T & operator()(size_t i) {
-        return data[i];
-    }
-
-    T const & operator()(size_t i) const {
-        return data[i];
-    }
-
-    size_t size(){ return d1*d2*d3; }
-    size_t d1s(){ return d1; }
-    size_t d2s(){ return d2; }
-    size_t d3s(){ return d3; }
-
-    T* dp(){ return data.data();}
-
-    void clear(){
-	std::fill(data.begin(), data.end(), 0);
-    }
-
-
-private:
-    size_t d1,d2,d3;
-    std::vector<T> data;
-};
 
 
 /// My own 2D FFT Implementation, because I have no idea what is wrong.

@@ -1,10 +1,10 @@
 #ifndef HDF5_CUH
 #define HDF5_CUH
 
-#include <cuComplex.h>
+#ifdef CUDA_ACCELERATION
 #include "cuda.h"
 #include "cuda_runtime_api.h"
-
+#endif
 
 //HDF5 is C, so lets avoid the name mangling by the c++ compiler.
 #ifdef __cplusplus
@@ -71,13 +71,18 @@ extern "C" {
     double w;
   };
 
-  // Seperable k=ernel data
+
+   // Seperable kernel data
   struct sep_kernel_data
   {
     double *data; // Assumed to be real
     int size;
     int oversampling;
+    double du;
+    double dw;
+    double x0;
   };
+
 
 
   struct w_kernel_data
@@ -141,29 +146,38 @@ extern "C" {
 
   int free_vis(struct vis_data *vis);
 
-  int free_vis_CUDA(struct vis_data *vis);
-    
-  int load_vis_CUDA(const char *filename, struct vis_data *vis,
-		    double min_len, double max_len);
+
   int load_vis(const char *filename, struct vis_data *vis,
 	       double min_len, double max_len);
 
-  void flatten_visibilities_CUDA(struct vis_data *vis, struct flat_vis_data *flat_vis);
+
   int load_sep_kern(const char *filename, struct sep_kernel_data *sepkern);
     
-  //You must compile both hdf5.c AND your kernel with -DVAR_W_KERN to use variable w-kernels.
-#ifdef VAR_W_KERN
-  int load_wkern_CUDA(const char *filename, double theta, struct var_w_kernel_data *wkern);
-#else
-  int load_wkern_CUDA(const char *filename, double theta, struct w_kernel_data *wkern);
-#endif
 
 #ifdef VAR_W_KERN
   int load_wkern(const char *filename, double theta, struct var_w_kernel_data *wkern);
 #else
   int load_wkern(const char *filename, double theta, struct w_kernel_data *wkern);
 #endif
-  
+
+
+#ifdef CUDA_ACCELERATION    
+  int free_vis_CUDA(struct vis_data *vis);
+    
+  int load_vis_CUDA(const char *filename, struct vis_data *vis,
+		    double min_len, double max_len);
+
+  void flatten_visibilities_CUDA(struct vis_data *vis, struct flat_vis_data *flat_vis);
+
+      //You must compile both hdf5.c AND your kernel with -DVAR_W_KERN to use variable w-kernels.
+#ifdef VAR_W_KERN
+  int load_wkern_CUDA(const char *filename, double theta, struct var_w_kernel_data *wkern);
+#else
+  int load_wkern_CUDA(const char *filename, double theta, struct w_kernel_data *wkern);
+#endif
+#endif
+
+    
 #ifdef __cplusplus
 }
 #endif

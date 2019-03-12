@@ -7,8 +7,7 @@
 //CUDA Includes
 
 #include "helper_string.h"
-
-#include "wstack_common.cuh"
+#include "wstack_common.h"
 
 void showHelp(){
 

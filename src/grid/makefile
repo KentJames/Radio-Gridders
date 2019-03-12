@@ -2,8 +2,8 @@ NVCC = nvcc
 CC = gcc
 CXX = g++
 
-override CXXFLAGS +=-std=c++11 -I../common
-override LDFLAGS += -L/data4/jkent/bifrost/lib -lhdf5 -lm -lcufft -lcublas -gencode arch=compute_52,code=sm_52 -L../common -lhdf5_cu
+override CXXFLAGS +=-std=c++11 -I../common -DCUDA_ACCELERATION
+override LDFLAGS += -L/data4/jkent/bifrost/lib -lhdf5 -lm -lcufft -lcublas -gencode arch=compute_52,code=sm_52 -L../common -lhdf5_cu -lcommon_kernels
 override CUDA_FLAGS += 
 
 BINDIR = ./
@@ -15,12 +15,11 @@ clean:
 	rm -f *.o 
 	rm -f *.out
 
-
 grid.out: grid_cuda.o grid.o 
-	$(NVCC) $^ -o ../../bin/grid.out $(LDFLAGS)
+	$(NVCC) $^ -o ../../bin/grid.out $(LDFLAGS) 
 
 grid_cuda.o: grid_cuda.cu
-	$(NVCC) -c $< -o $@ $(CXXFLAGS) $(CUDA_FLAGS)
+	$(NVCC) -c $< -o $@ $(CXXFLAGS) $(CUDA_FLAGS) 
 
 grid.o: grid.cpp
 	$(NVCC) -c $< -o $@ $(CXXFLAGS)
