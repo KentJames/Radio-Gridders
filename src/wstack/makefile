@@ -1,10 +1,8 @@
-NVCC = nvcc
-CC = clang
-CXX = clang++
+include ../../user.mk
 
 override CXXFLAGS +=-std=c++14 -I../common
 override LDFLAGS += -lhdf5 -lm  -L../common -lhdf5_r -lfftw3
-override CUDA_FLAGS += 
+override CUDA_FLAGS +=-std=c++14 -I../common
 
 BINDIR = ./
 
@@ -25,5 +23,13 @@ wstack.o: wstack.cpp
 predict.o: predict.cpp
 	$(CXX) -c $< -o $@ $(CXXFLAGS)
 
+
+ifndef CUDA
 libpredict.a: predict.o
 	ar rcs $@ $^
+else
+predict_cu.o: predict.cu
+	$(NVCC) -c $< -o $@ $(CUDA_FLAGS)
+libpredict.a: predict.o predict_cu.o
+	ar rcs $@ $^
+endif

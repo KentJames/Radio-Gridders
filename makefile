@@ -1,13 +1,11 @@
+include user.mk
+
+
 GRID_DIR = ./src/grid
 DFT_DIR = ./src/dft
 COMMON_DIR = ./src/common
 REF_DIR = ./src/reference
 EPIC_DIR = ./src/epic
-
-override CXXFLAGS +=
-override LDFLAGS +=
-override CUDA_FLAGS +=
-override CFLAGS +=
 
 .PHONY: project_code
 

@@ -16,7 +16,6 @@
  */
 
 
-
 /// My own 2D FFT Implementation, because I have no idea what is wrong.
 
 // DIT, depth first, In-Place 1D FFT. Radix-2
@@ -357,8 +356,8 @@ std::complex<double> wstack_predict(double theta,
     double x0ih = std::round(0.5/x0);
     int oversampg = static_cast<int>(x0ih * grid_size);
     assert(oversampg > grid_size);
-    int gd = (oversampg - grid_size)/2;
-    
+    //int gd = (oversampg - grid_size)/2;
+
     // Fresnel Pattern
     
     vector2D<std::complex<double>> wtransfer = generate_fresnel(theta,lam,dw,x0);
@@ -394,10 +393,10 @@ std::complex<double> wstack_predict(double theta,
 
     std::cout << "W-Stacker: \n";
     std::cout << std::setprecision(15);
+    
     for(int i = 0; i < w_planes; ++i){
 
 	std::cout << "Processing Plane: " << i << "\n";
-	
 	
 	fftw_execute(plan);
 	fft_shift_2Darray(plane);
@@ -411,8 +410,6 @@ std::complex<double> wstack_predict(double theta,
 	std::cout << wstacks(2048,2048,i) << "\n";
 	std::cout << predict_visibility_quantized(points,theta,lam,0.0,0.0,(i-std::floor(w_planes/2))*dw) << "\n";
 	plane.clear();	
-
-
     }
 
     // std::cout << "############\n";
@@ -434,22 +431,37 @@ std::complex<double> wstack_predict(double theta,
     std::complex<double> vis_sze = {0.0,0.0};
     int oversampling = grid_conv_uv->oversampling;
     int oversampling_w = grid_conv_w->oversampling;
+
+    // U/V/W oversample values
+    double flu = std::abs(u) - std::floor(std::abs(u)/du)*du;
+    double flv = std::abs(v) - std::floor(std::abs(v)/du)*du;
+    double flw = std::abs(w) - std::floor(std::abs(w)/dw)*dw;
+    
+    int ovu = static_cast<int>(std::ceil(flu/du * oversampling));
+    int ovv = static_cast<int>(std::ceil(flv/du * oversampling));
+    int ovw = static_cast<int>(std::ceil(flw/dw * oversampling_w));
+    std::cout << "OV U: " << ovu << "\n";
+    std::cout << "OV V: " << ovv << "\n";
+    std::cout << "OV W: " << ovw << "\n";
+    
+    
     int aa_h = std::floor(aa_support_uv/2);
     int aaw_h = std::floor(aa_support_w/2);
     for(int dui = -aa_h; dui < aa_h; ++dui){
 
-	int dus = std::round(u/du) + grid_size + dui; 
-	int aas_u = (dui+aa_h) * oversampling;
+
+	int dus = static_cast<int>(std::trunc(u/du) + grid_size + dui); 
+	int aas_u = (dui+aa_h) * oversampling + ovu;
 	
 	for(int dvi = -aa_h; dvi < aa_h; ++dvi){
 
-	    int dvs = std::round(v/du) + grid_size + dvi;
-	    int aas_v = (dvi+aa_h) * oversampling;
+	    int dvs = static_cast<int>(std::trunc(v/du) + grid_size + dvi);
+	    int aas_v = (dvi+aa_h) * oversampling + ovv;
 	    
 	    for(int dwi = -aaw_h; dwi < aaw_h; ++dwi){
 
-		int dws = std::round(w/dw) + floor(w_planes/2) + dwi;
-		int aas_w = (dwi+aaw_h) * oversampling_w;	
+		int dws = static_cast<int>(std::trunc(w/dw) + std::floor(w_planes/2) + dwi);
+		int aas_w = (dwi+aaw_h) * oversampling_w + ovw;	
 		
 		double grid_convolution = 1.0 * 
 		    grid_conv_uv->data[aas_u] *

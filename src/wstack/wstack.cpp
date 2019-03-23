@@ -53,7 +53,7 @@ int main(int argc, char **argv) {
     std::cout << "CUDA System Information: \n\n";
     int numberofgpus;
     int dev_no = 0;
-    int cuda_acceleration = 0;
+    
 
   
     cudaGetDeviceCount(&numberofgpus);
@@ -93,7 +93,7 @@ int main(int argc, char **argv) {
     cudaSetDevice(dev_no);
 #endif
 
-    
+    int cuda_acceleration = 0;
     double theta = false;
     double lambda = false;
     int mode = 0;
@@ -127,7 +127,6 @@ int main(int argc, char **argv) {
 	    std::cout << "Invalid lambda value specified\n";
 	    return 0;
 	}
-      
     }    
 
     if(checkCmdLineFlag(argc, (const char**) argv, "npts")){
@@ -203,24 +202,46 @@ int main(int argc, char **argv) {
     struct sep_kernel_data *sepkern_w = (struct sep_kernel_data*)malloc(sizeof(struct sep_kernel_data));
     struct sep_kernel_data *sepkern_lm = (struct sep_kernel_data*)malloc(sizeof(struct sep_kernel_data));
     struct sep_kernel_data *sepkern_n = (struct sep_kernel_data*)malloc(sizeof(struct sep_kernel_data));
-    
-    std::cout << "Loading Kernel...";
-    load_sep_kern(sepkern_uv_file,sepkern_uv);
-    std::cout << "Loading W Kernel...";
-    load_sep_kern(sepkern_w_file,sepkern_w);
 
-    std::cout << "Loading AA Kernel...";
-    load_sep_kern(sepkern_lm_file, sepkern_lm);
-    std::cout << "Loading AA Kernel...";
-    load_sep_kern(sepkern_n_file, sepkern_n);
+#ifdef CUDA_ACCELERATION
+    if(cuda_acceleration){
 
-
+	std::cout << "Loading Kernel...";
+	load_sep_kern_CUDA(sepkern_uv_file,sepkern_uv);
+	std::cout << "Loading W Kernel...";
+	load_sep_kern_CUDA(sepkern_w_file,sepkern_w);
+	
+	std::cout << "Loading AA Kernel...";
+	load_sep_kern_CUDA(sepkern_lm_file, sepkern_lm);
+	std::cout << "Loading AA Kernel...";
+	load_sep_kern_CUDA(sepkern_n_file, sepkern_n);
+	
+    } else {
+#endif
+	std::cout << "Loading Kernel...";
+	load_sep_kern(sepkern_uv_file,sepkern_uv);
+	std::cout << "Loading W Kernel...";
+	load_sep_kern(sepkern_w_file,sepkern_w);
+	
+	std::cout << "Loading AA Kernel...";
+	load_sep_kern(sepkern_lm_file, sepkern_lm);
+	std::cout << "Loading AA Kernel...";
+	load_sep_kern(sepkern_n_file, sepkern_n);
+#ifdef CUDA_ACCELERATION
+    } 
+#endif
     double du = sepkern_uv->du;
     double dw = sepkern_w->dw;
     double x0 = sepkern_lm->x0;
 
     int support_uv = sepkern_uv->size;
     int support_w = sepkern_w->size;
+
+    std::cout << "Optimum Parameters: " << "\n";
+    std::cout << "dw: " << dw << "\n";
+    std::cout << "du: " << du << "\n";
+    
+    
     /* 
        PREDICT
     */   
@@ -238,10 +259,43 @@ int main(int argc, char **argv) {
 	    pv =  getCmdLineArgumentDouble(argc, (const char **) argv, "pv");
 	    pw =  getCmdLineArgumentDouble(argc, (const char **) argv, "pw");
 	}
+
+	double flu = std::abs(pu) - std::floor(std::abs(pu)/du)*du;
+	double flv = std::abs(pv) - std::floor(std::abs(pv)/du)*du;
+	double flw = std::abs(pw) - std::floor(std::abs(pw)/dw)*dw;
+
+	// Somewhere the co-ordinate conventions got inverted.
+	double puu, pvv, pww;
+
+	// I am too hungover to work out a better way of doing this.
+	if(pu >= 0){
+	    puu = pu - 2*flu;
+	} else {
+	    puu = pu;
+	}
+
+	if(pv >= 0){
+	    pvv = pv - 2*flv;
+	} else {
+	    pvv = pv;
+	}
+
+	if(pw >= 0){
+	    pww = pw - 2*flw;
+	} else {
+	    pww = pw;
+	}
+	    
+		
+	std::cout << "flu: " << flu << "\n";
+	std::cout << "flv: " << flv << "\n";
+	std::cout << "flw: " << flw << "\n";
+
+	
 	std::cout << "##### W Stacking #####\n";
 	std::vector<double> points = generate_random_points(npts, theta);
-	std::cout << "Visibility at: " << pu << " " << pv << " " << pw << "\n";
-	std::complex<double> visq = predict_visibility_quantized(points,theta,lambda,pu,pv,pw);
+	std::cout << "Visibility at: " << puu << " " << pvv << " " << pww << "\n";
+	std::complex<double> visq = predict_visibility_quantized(points,theta,lambda,puu,pvv,pww);
 	std::complex<double> visd = predict_visibility(points,pu,pv,pw);
 	std::cout << "DFT Prediction: " << visq << "\n";
 	std::cout << " : " << visd << "\n";
