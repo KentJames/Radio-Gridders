@@ -198,7 +198,7 @@ int main(int argc, char **argv) {
     }
 
 
-    struct sep_kernel_data *sepkern_uv = (struct sep_kernel_data *)malloc(sizeof(struct sep_kernel_data));
+    struct sep_kernel_data *sepkern_uv = (struct sep_kernel_data*)malloc(sizeof(struct sep_kernel_data));
     struct sep_kernel_data *sepkern_w = (struct sep_kernel_data*)malloc(sizeof(struct sep_kernel_data));
     struct sep_kernel_data *sepkern_lm = (struct sep_kernel_data*)malloc(sizeof(struct sep_kernel_data));
     struct sep_kernel_data *sepkern_n = (struct sep_kernel_data*)malloc(sizeof(struct sep_kernel_data));
@@ -259,43 +259,11 @@ int main(int argc, char **argv) {
 	    pv =  getCmdLineArgumentDouble(argc, (const char **) argv, "pv");
 	    pw =  getCmdLineArgumentDouble(argc, (const char **) argv, "pw");
 	}
-
-	double flu = std::abs(pu) - std::floor(std::abs(pu)/du)*du;
-	double flv = std::abs(pv) - std::floor(std::abs(pv)/du)*du;
-	double flw = std::abs(pw) - std::floor(std::abs(pw)/dw)*dw;
-
-	// Somewhere the co-ordinate conventions got inverted.
-	double puu, pvv, pww;
-
-	// I am too hungover to work out a better way of doing this.
-	if(pu >= 0){
-	    puu = pu - 2*flu;
-	} else {
-	    puu = pu;
-	}
-
-	if(pv >= 0){
-	    pvv = pv - 2*flv;
-	} else {
-	    pvv = pv;
-	}
-
-	if(pw >= 0){
-	    pww = pw - 2*flw;
-	} else {
-	    pww = pw;
-	}
-	    
-		
-	std::cout << "flu: " << flu << "\n";
-	std::cout << "flv: " << flv << "\n";
-	std::cout << "flw: " << flw << "\n";
-
 	
 	std::cout << "##### W Stacking #####\n";
 	std::vector<double> points = generate_random_points(npts, theta);
-	std::cout << "Visibility at: " << puu << " " << pvv << " " << pww << "\n";
-	std::complex<double> visq = predict_visibility_quantized(points,theta,lambda,puu,pvv,pww);
+	std::cout << "Visibility at: " << pu << " " << pv << " " << pw << "\n";
+	std::complex<double> visq = predict_visibility_quantized(points,theta,lambda,pu,pv,pw);
 	std::complex<double> visd = predict_visibility(points,pu,pv,pw);
 	std::cout << "DFT Prediction: " << visq << "\n";
 	std::cout << " : " << visd << "\n";

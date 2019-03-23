@@ -15,71 +15,6 @@
   Predicts a visibility at a particular point using the direct fourier transform.
  */
 
-
-/// My own 2D FFT Implementation, because I have no idea what is wrong.
-
-// DIT, depth first, In-Place 1D FFT. Radix-2
-void fft_1d_DIT_radix2(std::complex<double> *input, int fft_size){
-
-  assert(fft_size && !(fft_size & (fft_size-1))); // Power of two check. Keep it simple..
-  if(fft_size < 2) {
-    //Bottom of the recursion pile.
-  } else {
-    
-    //Seperate
-      std::complex<double> *temp_odd = (std::complex<double>*)calloc(fft_size/2, sizeof(std::complex<double>));
-    for(int i = 0; i < fft_size/2; ++i){
-      temp_odd[i] = input[i*2 + 1];
-    }
-    for(int i = 0; i < fft_size/2; ++i){
-      input[i] = input[i*2];
-    }
-    for(int i = 0; i < fft_size/2; ++i){
-      input[i + fft_size/2] = temp_odd[i];
-      
-    }
-    free(temp_odd);
-
-    //Recurse
-    fft_1d_DIT_radix2(input, fft_size/2);
-    fft_1d_DIT_radix2(input + fft_size/2, fft_size/2);
-    
-    //Butterfly
-    for(int i = 0; i < fft_size/2; ++i){
-	std::complex<double> even = input[i];
-	std::complex<double> odd =  input[i + fft_size/2];
-	std::complex<double> ph = {0.0,-2 * PI<double> * i/fft_size};
-	std::complex<double> twiddle = std::exp(ph);
-	input[i] = even + twiddle * odd;
-	input[i + fft_size/2] = even - twiddle * odd;
-    }
-  }	 
-}
-
-void fft_2d_DIT_radix2(vector2D<std::complex<double>>& array,
-		       int xsize,
-		       int ysize){
-
-    std::complex<double> *dp = array.dp();
-
-    // FFT Along X Directions
-    for (int y = 0; y < ysize; ++y){
-	std::complex<double> *fftp = dp + y * xsize;
-	fft_1d_DIT_radix2(fftp, xsize);
-    }
-
-    array.transpose();
-
-    // FFT Along X Directions
-    for (int y = 0; y < ysize; ++y){
-	std::complex<double> *fftp = dp + y * xsize;
-	fft_1d_DIT_radix2(fftp, xsize);
-    }
-
-    
-}
-
-
 std::complex<double> predict_visibility(const std::vector<double>& points,
 					double u,
 					double v,
@@ -334,7 +269,6 @@ void fft_shift_2Darray(vector2D<std::complex<double>>& array){
 
 }
 
-//TODO: There is a subtle bug raising error. Where is it...
 std::complex<double> wstack_predict(double theta,
 				    double lam,
 				    const std::vector<double>& points,
@@ -412,55 +346,35 @@ std::complex<double> wstack_predict(double theta,
 	plane.clear();	
     }
 
-    // std::cout << "############\n";
-    // std::cout << std::setprecision(15);
-    // std::cout << wstacks(2046,2048,5) << "\n";
-    // std::cout << wstacks(2000,2096,5) << "\n";
-    // std::cout << wstacks(2096,2096,5) << "\n";
-    // std::cout << wstacks(2096,2000,5) << "\n";
-    // std::cout << wstacks(2000,2000,5) << "\n";
-    // std::cout << "############\n";
-    // std::cout << predict_visibility_quantized(points,theta,lam,-10.0,0.0,dw) << "\n";
-    // std::cout << predict_visibility_quantized(points,theta,lam,-240.0,240.0,dw) << "\n";
-    // std::cout << predict_visibility_quantized(points,theta,lam,240.0,240.0,dw) << "\n";
-    // std::cout << predict_visibility_quantized(points,theta,lam,240.0,-240.0,dw) << "\n";
-    // std::cout << predict_visibility_quantized(points,theta,lam,-240.0,-240.0,dw) << "\n";
-    
-
     // Begin De-convolution process using Sze-Tan Kernels.
     std::complex<double> vis_sze = {0.0,0.0};
     int oversampling = grid_conv_uv->oversampling;
     int oversampling_w = grid_conv_w->oversampling;
 
     // U/V/W oversample values
-    double flu = std::abs(u) - std::floor(std::abs(u)/du)*du;
-    double flv = std::abs(v) - std::floor(std::abs(v)/du)*du;
-    double flw = std::abs(w) - std::floor(std::abs(w)/dw)*dw;
+    double flu = u - std::ceil(u/du)*du;
+    double flv = v - std::ceil(v/du)*du;
+    double flw = w - std::ceil(w/dw)*dw;
     
-    int ovu = static_cast<int>(std::ceil(flu/du * oversampling));
-    int ovv = static_cast<int>(std::ceil(flv/du * oversampling));
-    int ovw = static_cast<int>(std::ceil(flw/dw * oversampling_w));
-    std::cout << "OV U: " << ovu << "\n";
-    std::cout << "OV V: " << ovv << "\n";
-    std::cout << "OV W: " << ovw << "\n";
-    
+    int ovu = static_cast<int>(std::floor(std::abs(flu)/du * oversampling));
+    int ovv = static_cast<int>(std::floor(std::abs(flv)/du * oversampling));
+    int ovw = static_cast<int>(std::floor(std::abs(flw)/dw * oversampling_w));   
     
     int aa_h = std::floor(aa_support_uv/2);
     int aaw_h = std::floor(aa_support_w/2);
     for(int dui = -aa_h; dui < aa_h; ++dui){
 
-
-	int dus = static_cast<int>(std::trunc(u/du) + grid_size + dui); 
+	int dus = static_cast<int>(std::ceil(u/du) + grid_size + dui); 
 	int aas_u = (dui+aa_h) * oversampling + ovu;
 	
 	for(int dvi = -aa_h; dvi < aa_h; ++dvi){
 
-	    int dvs = static_cast<int>(std::trunc(v/du) + grid_size + dvi);
+	    int dvs = static_cast<int>(std::ceil(v/du) + grid_size + dvi);
 	    int aas_v = (dvi+aa_h) * oversampling + ovv;
 	    
 	    for(int dwi = -aaw_h; dwi < aaw_h; ++dwi){
 
-		int dws = static_cast<int>(std::trunc(w/dw) + std::floor(w_planes/2) + dwi);
+		int dws = static_cast<int>(std::ceil(w/dw) + std::floor(w_planes/2) + dwi);
 		int aas_w = (dwi+aaw_h) * oversampling_w + ovw;	
 		
 		double grid_convolution = 1.0 * 
@@ -479,71 +393,3 @@ std::complex<double> wstack_predict(double theta,
     return vis_sze;
    
 }
-
-
-// // Why do my FFT's not match the DFT to 1 part in 10^6???
-// std::complex<double> wstack_predict_test(double theta,
-// 					 double lam,
-// 					 const std::vector<double>& points,
-// 					 double u,
-// 					 double v,
-// 					 double w,
-// 					 double du, // Sze-Tan Optimum Spacing in U/V
-// 					 double dw, // Sze-Tan Optimum Spacing in W
-// 					 double aa_support_uv,
-// 					 double aa_support_w,
-// 					 double x0,
-// 					 struct sep_kernel_data *grid_conv_uv,
-// 					 struct sep_kernel_data *grid_conv_w,
-// 					 struct sep_kernel_data *grid_corr_lm,
-// 					 struct sep_kernel_data *grid_corr_n){
-
-
-//     int grid_size = std::floor(theta * lam);
-
-//     vector2D<std::complex<double>> sky = generate_sky(points,
-// 						      theta,
-// 						      lam,
-// 						      du,
-// 						      dw,
-// 						      x0,
-// 						      grid_corr_lm,
-// 						      grid_corr_n);
-
-//     vector2D<std::complex<double>> planep(grid_size,grid_size,{0.0,0.0});
-//     vector2D<std::complex<double>> skyp(grid_size,grid_size,{0.0,0.0});
-//     fftw_plan plan2;
-    
-//     plan2 = fftw_plan_dft_2d(grid_size,grid_size,
-//     			    reinterpret_cast<fftw_complex*>(skyp.dp()),
-//     			     reinterpret_cast<fftw_complex*>(planep.dp()),
-//      			    FFTW_FORWARD,
-//      			    FFTW_ESTIMATE);
-//     planep.clear();
-//     skyp.clear();
-//     fft_shift_2Darray(sky);
-//     std::memcpy(skyp.dp(),sky.dp(),sizeof(std::complex<double>) * (grid_size*grid_size));
-//     // fft_2d_DIT_radix2(skyp,
-//     // 		      grid_size,
-//     // 		      grid_size);
-
-//     fftw_execute(plan2);
-//     fft_shift_2Darray(skyp);
-//     fft_shift_2Darray(planep);
-    
-//     std::cout << "############\n";
-//     std::cout << std::setprecision(15);
-//     std::cout << planep(1023,1024) << "\n";
-//     std::cout << planep(1000,1048) << "\n";
-//     std::cout << planep(1048,1048) << "\n";
-//     std::cout << planep(1048,1000) << "\n";
-//     std::cout << planep(1000,1000) << "\n";
-//     std::cout << "############\n";
-//     std::cout << predict_visibility_quantized(points,theta,lam,-10.0,0.0,0.0) << "\n";
-//     std::cout << predict_visibility_quantized(points,theta,lam,-240.0,240.0,0.0) << "\n";
-//     std::cout << predict_visibility_quantized(points,theta,lam,240.0,240.0,0.0) << "\n";
-//     std::cout << predict_visibility_quantized(points,theta,lam,240.0,-240.0,0.0) << "\n";
-//     std::cout << predict_visibility_quantized(points,theta,lam,-240.0,-240.0,0.0) << "\n";
-    
-//     return {0.0,0.0};
-// }
