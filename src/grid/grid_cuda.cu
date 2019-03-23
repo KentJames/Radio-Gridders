@@ -495,10 +495,10 @@ __host__ cudaError_t wtowers_CUDA(const char* visfile, const char* wkernfile,
   add_subs2main_kernel <<< dimGrid_main, dimBlock_main >>> (grid, subimgs, grid_size, subgrid_size,
   					  subgrid_margin, chunk_count_1d, chunk_size);  
   
-  fft_shift_kernel <<< dimGrid_main, dimBlock_main >>> (grid, grid_size);
+  fft_shift_kernel <cuDoubleComplex> <<< dimGrid_main, dimBlock_main >>> (grid, grid_size);
   cuFFTError_check(cufftExecZ2Z(grid_plan, grid, grid, CUFFT_INVERSE));
 
-  fft_shift_kernel <<< dimGrid_main, dimBlock_main >>> (grid, grid_size);
+  fft_shift_kernel <cuDoubleComplex> <<< dimGrid_main, dimBlock_main >>> (grid, grid_size);
   
 
   cudaEventCreate(&stop);
@@ -724,9 +724,9 @@ __host__ cudaError_t wtowers_CUDA_flat(const char* visfile, const char* wkernfil
   #endif
   add_subs2main_kernel <<< dimGrid_main, dimBlock_main >>> (grid, subimgs, grid_size, subgrid_size,
   					  subgrid_margin, chunk_count_1d, chunk_size);  
-  fft_shift_kernel <<< dimGrid_main, dimBlock_main >>> (grid, grid_size);
+  fft_shift_kernel <cuDoubleComplex> <<< dimGrid_main, dimBlock_main >>> (grid, grid_size);
   cuFFTError_check(cufftExecZ2Z(grid_plan, grid, grid, CUFFT_INVERSE));
-  fft_shift_kernel <<< dimGrid_main, dimBlock_main >>> (grid, grid_size);
+  fft_shift_kernel <cuDoubleComplex> <<< dimGrid_main, dimBlock_main >>> (grid, grid_size);
   
   return error;
 
@@ -798,13 +798,13 @@ __host__ cudaError_t wproj_CUDA(const char* visfile, const char* wkernfile,
   
   dim3 dimBlock(fft_bs,fft_bs);
   dim3 dimGrid(fft_gs,fft_gs);
-  fft_shift_kernel <<< dimBlock, dimGrid >>> (grid, grid_size);
+  fft_shift_kernel <cuDoubleComplex> <<< dimBlock, dimGrid >>> (grid, grid_size);
   std::cout << "Executing iFFT back to Image Space... \n";
   
   cufftHandle fft_plan;
   cuFFTError_check(cufftPlan2d(&fft_plan,grid_size,grid_size,CUFFT_Z2Z));
   cuFFTError_check(cufftExecZ2Z(fft_plan, grid, grid, CUFFT_INVERSE));
-  fft_shift_kernel <<< dimBlock, dimGrid >>> (grid, grid_size);
+  fft_shift_kernel <cuDoubleComplex> <<< dimBlock, dimGrid >>> (grid, grid_size);
 
   return error;
 }
@@ -896,13 +896,13 @@ __host__ cudaError_t wproj_CUDA_flat(const char* visfile, const char* wkernfile,
   
   dim3 dimBlock(fft_bs,fft_bs);
   dim3 dimGrid(fft_gs,fft_gs);
-  fft_shift_kernel <<< dimBlock, dimGrid >>> (grid, grid_size);
+  fft_shift_kernel <cuDoubleComplex> <<< dimBlock, dimGrid >>> (grid, grid_size);
   std::cout << "Executing iFFT back to Image Space... \n";
   
   cufftHandle fft_plan;
   cuFFTError_check(cufftPlan2d(&fft_plan,grid_size,grid_size,CUFFT_Z2Z));
   cuFFTError_check(cufftExecZ2Z(fft_plan, grid, grid, CUFFT_INVERSE));
-  fft_shift_kernel <<< dimBlock, dimGrid >>> (grid, grid_size);
+  fft_shift_kernel <cuDoubleComplex> <<< dimBlock, dimGrid >>> (grid, grid_size);
   
   return error;
 } 

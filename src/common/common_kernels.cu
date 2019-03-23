@@ -79,8 +79,9 @@ __global__ void add_subs2main_kernel(cuDoubleComplex *main, cuDoubleComplex *sub
 }
 
 
-//Shifts a 2D grid to be in the right place for an FFT. 
-__global__ void fft_shift_kernel(cuDoubleComplex *grid, int size){
+//Shifts a 2D grid to be in the right place for an FFT.
+template <typename T>
+__global__ void fft_shift_kernel(T *grid, int size){
 
   int x = blockIdx.x * blockDim.x + threadIdx.x;
   int y = blockIdx.y * blockDim.y + threadIdx.y;
@@ -90,7 +91,7 @@ __global__ void fft_shift_kernel(cuDoubleComplex *grid, int size){
     int ix0 = y * size + x;
     int ix1 = (ix0 + (size + 1) * (size/2)) % (size*size);
 
-    cuDoubleComplex temp = grid[ix0];
+    T temp = grid[ix0];
     grid[ix0] = grid[ix1];
     grid[ix1] = temp;
   }
