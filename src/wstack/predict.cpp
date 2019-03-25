@@ -106,7 +106,7 @@ std::vector<double> generate_testcard_dataset(double theta){
 }
 
 
-vector2D<std::complex<double>> generate_fresnel(double theta,
+vector2D<std::complex<double> > generate_fresnel(double theta,
 						double lam,
 						double dw,
 						double x0){
@@ -121,7 +121,7 @@ vector2D<std::complex<double>> generate_fresnel(double theta,
     std::cout << "oversampg: " << oversampg << "\n";
     std::cout << "gd: " << gd << "\n";
 
-    vector2D<std::complex<double>> wtransfer(oversampg,oversampg,{0.0,0.0});
+    vector2D<std::complex<double> > wtransfer(oversampg,oversampg,{0.0,0.0});
     
     for (int y=0; y < grid_size; ++y){
 	for (int x=0; x < grid_size; ++x){
@@ -144,7 +144,7 @@ vector2D<std::complex<double>> generate_fresnel(double theta,
 
 //Quantises our sources onto the sky.
 void generate_sky(const std::vector<double>& points,
-		  vector2D<std::complex<double>>& sky, // We do this by reference because of FFTW planner.
+		  vector2D<std::complex<double> >& sky, // We do this by reference because of FFTW planner.
 		  double theta,
 		  double lam,
 		  double du,
@@ -305,9 +305,9 @@ std::complex<double> wstack_predict(double theta,
     
     
     // We double our grid size to get the optimal spacing.
-    vector3D<std::complex<double>> wstacks(oversampg,oversampg,w_planes,{0.0,0.0});
-    vector2D<std::complex<double>> skyp(oversampg,oversampg,{0.0,0.0});
-    vector2D<std::complex<double>> plane(oversampg,oversampg,{0.0,0.0});
+    vector3D<std::complex<double> > wstacks(oversampg,oversampg,w_planes,{0.0,0.0});
+    vector2D<std::complex<double> > skyp(oversampg,oversampg,{0.0,0.0});
+    vector2D<std::complex<double> > plane(oversampg,oversampg,{0.0,0.0});
     fftw_plan plan;
     std::cout << "Planning fft's... " << std::flush;
     plan = fftw_plan_dft_2d(2*grid_size,2*grid_size,
