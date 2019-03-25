@@ -22,37 +22,130 @@
 #include "wstack_common.h"
 #include "common_kernels.cuh"
 #include "radio.cuh"
+#include "predict.cuh"
+
 
 
 
 //Elementwise multiplication of subimg with fresnel.
-template <typename RealType>
-__global__ void fresnel_sky_mul(thrust::complex<RealType> *sky,
-				   thrust::complex<RealType> *fresnel,
-				   int n,
-				   int wp){
+template <typename FloatType>
+__global__ void fresnel_sky_mul(thrust::complex<FloatType> *sky,
+				thrust::complex<FloatType> *fresnel,
+				int n,
+				int wp){
 
-  int x = blockIdx.x * blockDim.x + threadIdx.x;
-  int y = blockIdx.y * blockDim.y + threadIdx.y;
-
-  if(x < n && y < n){
-      thrust::complex<RealType> pown = {wp,0.0};
-      thrust::complex<RealType> wtrans = thrust::pow(fresnel[y * n + x], pown);
-      thrust::complex<RealType> skyv = sky[y*n + x];
-      thrust::complex<RealType> fresnelv = fresnel[y *n + x];
-      thrust::complex<RealType> test = {0.0, 0.0};
-      
-      if(wp == 1){
-	  sky[y*n + x] = skyv;
-      } else {
-	  if (fresnelv == test){} else {
-	      sky[y*n + x] = skyv * thrust::pow(fresnelv,wp);
-	  }
-      }
-  }
+    int x = blockIdx.x * blockDim.x + threadIdx.x;
+    int y = blockIdx.y * blockDim.y + threadIdx.y;
+    
+    if(x < n && y < n){
+	thrust::complex<FloatType> pown = {wp,0.0};
+	thrust::complex<FloatType> wtrans = thrust::pow(fresnel[y * n + x], pown);
+	thrust::complex<FloatType> skyv = sky[y*n + x];
+	thrust::complex<FloatType> fresnelv = fresnel[y *n + x];
+	thrust::complex<FloatType> test = {0.0, 0.0};
+	
+	if(wp == 1){
+	    sky[y*n + x] = skyv;
+	} else {
+	    if (fresnelv == test){} else {
+		sky[y*n + x] = skyv * thrust::pow(fresnelv,wp);
+	    }
+	}
+    }
 }
 
 
+__host__ void bin_predictions_cu(double theta,
+				 double lam,
+				 std::vector <double> uvec,
+				 std::vector <double> vvec,
+				 std::vector <double> wvec,
+				 double du,
+				 double dw,
+				 double w_min,
+				 int aa_support_uv,
+				 int aa_support_w,
+				 struct w_plane_locs <double> *bins,
+				 struct sep_kernel_data *grid_conv_uv,
+				 struct sep_kernel_data *grid_conv_w){
+
+    
+    std::size_t grid_size = static_cast<std::size_t>(std::floor(theta * lam));
+    
+	
+    for(std::size_t wp = 0; wp < aa_support_w; ++wp){
+	
+	struct w_plane_locs <double> *current_bin = bins + wp;
+	current_bin->wpi = wp;
+	std::size_t contributions_in_plane = 0;
+
+	// First do a pass over location vectors to work out how many contributions in the plane.
+
+	for(std::size_t dp = 0; dp < uvec.size(); ++dp){
+
+	    double w = wvec[dp];
+	    std::size_t wpi = std::floor((w-w_min)/dw + 0.5) + aa_support_w/2;
+	    std::size_t wp_min = wpi - aa_support_uv/2;
+	    std::size_t wp_max = wpi + aa_support_uv/2;
+
+	    if ((wp >= wp_min) && (wp < wp_max)) ++contributions_in_plane;
+
+	}
+
+	cudaError_check(cudaMallocManaged((void**)current_bin->visc,sizeof(struct vis_contribution <double>) * contributions_in_plane));
+	cudaError_check(cudaMallocManaged((void**)current_bin->contrib_index,sizeof(struct vis_contribution <double>) * contributions_in_plane));
+	current_bin->num_contribs = contributions_in_plane;
+	std::size_t current_visn = 0;
+	for(std::size_t dp = 0; dp < uvec.size(); ++dp){
+    
+	    double u = uvec[dp];
+	    double v = vvec[dp];
+	    double w = wvec[dp];
+	    
+	    std::size_t wpi = std::floor((w-w_min)/dw + 0.5) + aa_support_w/2;
+	    std::size_t wp_min = wpi - aa_support_uv/2;
+	    std::size_t wp_max = wpi + aa_support_uv/2;
+	    
+
+	    if ((wp >= wp_min) && (wp < wp_max)){
+	    
+		struct vis_contribution <double> *current_visc = &current_bin->visc[current_visn];
+		current_bin->contrib_index[current_visn] = dp;
+		//Malloc in our vis contributions
+		cudaError_check(cudaMallocManaged((void **)current_visc->locs_u,sizeof(int) * aa_support_uv));
+		cudaError_check(cudaMallocManaged((void **)current_visc->locs_v,sizeof(int) * aa_support_uv));
+		cudaError_check(cudaMallocManaged((void **)current_visc->gcf_u,sizeof(double) * aa_support_uv));
+		cudaError_check(cudaMallocManaged((void **)current_visc->gcf_v,sizeof(double) * aa_support_uv));
+
+		// We can use the seperability (and squareness) of the kernel to save ourselves some space.
+		std::size_t u_gp = std::floor(u/du) + grid_size/2;
+		std::size_t v_gp = std::floor(v/du) + grid_size/2;
+ 
+		// U/V/W oversample values
+		int oversampling = grid_conv_uv->oversampling;
+	    
+		double flu = u - std::ceil(u/du)*du;
+		double flv = v - std::ceil(v/du)*du;
+		int ovu = static_cast<int>(std::floor(std::abs(flu)/du * oversampling));
+		int ovv = static_cast<int>(std::floor(std::abs(flv)/du * oversampling));
+	    
+		for (std::size_t ul = 0; ul < aa_support_uv; ++ul) {
+
+		    std::size_t aas_u = (ul * oversampling + ovu);
+		    std::size_t aas_v = (ul * oversampling + ovv);
+		
+		    current_visc->locs_u[ul] = u_gp - aa_support_uv/2 + ul;
+		    current_visc->locs_v[ul] = v_gp - aa_support_uv/2 + ul;
+		    current_visc->gcf_u[ul] = grid_conv_uv->data[aas_u];
+		    current_visc->gcf_v[ul] = grid_conv_uv->data[aas_v];
+		
+		}
+		++current_visn;
+	    }
+	}	   
+    }
+}
+				 
 // We return std::complex to keep interface consistency with the C++ code.
 __host__ std::complex<double> wstack_predict_cu(double theta,
 						double lam,
@@ -112,6 +205,21 @@ __host__ std::complex<double> wstack_predict_cu(double theta,
 
     cufftHandle plan;
     cuFFTError_check(cufftPlan2d(&plan,oversampg,oversampg,CUFFT_Z2Z));
+
+    
+    // Bin our u/v/w prediction values in terms of w-plane contribution.
+    double w_min = *std::min_element(std::begin(w), std::end(w));
+    struct w_plane_locs <double> *wbins;
+    cudaError_check(cudaMallocManaged((void **)&wbins, sizeof(struct w_plane_locs <double>) * w_planes));
+
+
+    
+    thrust::device_vector<thrust::complex<double> > visibilities_d(u.size(),{0.0,0.0});
+    thrust::host_vector<thrust::complex<double> > visibilities_h;
+    bin_predictions_cu(theta, lam, u, v, w, du, dw, w_min,
+		       aa_support_uv, aa_support_w, wbins,
+		       grid_conv_uv, grid_conv_w);
+    
 
     // FFT Shift our Sky and Fresnel Pattern
     fft_shift_kernel <thrust::complex<double>>
