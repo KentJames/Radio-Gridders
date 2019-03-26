@@ -72,29 +72,35 @@ __host__ void bin_predictions_cu(double theta,
 
     
     std::size_t grid_size = static_cast<std::size_t>(std::floor(theta * lam));
-    
+    // Work out range of W-Planes    
+    double max_w = std::sin(theta/2) * std::sqrt(2*(grid_size*grid_size));
+    int w_planes = std::ceil(max_w/dw) + aa_support_w + 1;
+
 	
-    for(std::size_t wp = 0; wp < aa_support_w; ++wp){
+    for(std::size_t wp = 0; wp < w_planes; ++wp){
 	
-	struct w_plane_locs <double> *current_bin = bins + wp;
+	struct w_plane_locs <double> *current_bin = &bins[wp];
 	current_bin->wpi = wp;
 	std::size_t contributions_in_plane = 0;
 
 	// First do a pass over location vectors to work out how many contributions in the plane.
 
-	for(std::size_t dp = 0; dp < uvec.size(); ++dp){
+	for(std::size_t dp = 0; dp < wvec.size(); ++dp){
 
 	    double w = wvec[dp];
 	    std::size_t wpi = std::floor((w-w_min)/dw + 0.5) + aa_support_w/2;
-	    std::size_t wp_min = wpi - aa_support_uv/2;
-	    std::size_t wp_max = wpi + aa_support_uv/2;
+	    std::size_t wp_min = wpi - aa_support_w/2;
+	    std::size_t wp_max = wpi + aa_support_w/2;
 
 	    if ((wp >= wp_min) && (wp < wp_max)) ++contributions_in_plane;
 
 	}
+	std::cout << "Contribs in Plane: " << contributions_in_plane <<"\n";
 
-	cudaError_check(cudaMallocManaged((void**)current_bin->visc,sizeof(struct vis_contribution <double>) * contributions_in_plane));
-	cudaError_check(cudaMallocManaged((void**)current_bin->contrib_index,sizeof(struct vis_contribution <double>) * contributions_in_plane));
+	
+	if (contributions_in_plane == 0) continue; // Can't malloc a size of zero -> Things explode 
+	cudaError_check(cudaMallocManaged((void**)&current_bin->visc,sizeof(struct vis_contribution <double>) * contributions_in_plane,cudaMemAttachGlobal));
+	cudaError_check(cudaMallocManaged((void**)&current_bin->contrib_index,sizeof(struct vis_contribution <double>) * contributions_in_plane));
 	current_bin->num_contribs = contributions_in_plane;
 	std::size_t current_visn = 0;
 	for(std::size_t dp = 0; dp < uvec.size(); ++dp){
@@ -104,8 +110,8 @@ __host__ void bin_predictions_cu(double theta,
 	    double w = wvec[dp];
 	    
 	    std::size_t wpi = std::floor((w-w_min)/dw + 0.5) + aa_support_w/2;
-	    std::size_t wp_min = wpi - aa_support_uv/2;
-	    std::size_t wp_max = wpi + aa_support_uv/2;
+	    std::size_t wp_min = wpi - aa_support_w/2;
+	    std::size_t wp_max = wpi + aa_support_w/2;
 	    
 
 	    if ((wp >= wp_min) && (wp < wp_max)){
@@ -113,10 +119,10 @@ __host__ void bin_predictions_cu(double theta,
 		struct vis_contribution <double> *current_visc = &current_bin->visc[current_visn];
 		current_bin->contrib_index[current_visn] = dp;
 		//Malloc in our vis contributions
-		cudaError_check(cudaMallocManaged((void **)current_visc->locs_u,sizeof(int) * aa_support_uv));
-		cudaError_check(cudaMallocManaged((void **)current_visc->locs_v,sizeof(int) * aa_support_uv));
-		cudaError_check(cudaMallocManaged((void **)current_visc->gcf_u,sizeof(double) * aa_support_uv));
-		cudaError_check(cudaMallocManaged((void **)current_visc->gcf_v,sizeof(double) * aa_support_uv));
+		cudaError_check(cudaMallocManaged((void **)&current_visc->locs_u,sizeof(int) * aa_support_uv));
+		cudaError_check(cudaMallocManaged((void **)&current_visc->locs_v,sizeof(int) * aa_support_uv));
+		cudaError_check(cudaMallocManaged((void **)&current_visc->gcf_u,sizeof(double) * aa_support_uv));
+		cudaError_check(cudaMallocManaged((void **)&current_visc->gcf_v,sizeof(double) * aa_support_uv));
 
 		// We can use the seperability (and squareness) of the kernel to save ourselves some space.
 		std::size_t u_gp = std::floor(u/du) + grid_size/2;
@@ -198,67 +204,67 @@ __host__ std::complex<double> wstack_predict_cu(double theta,
     
 
     // We just copy into a thrust vector to make life easier from here on out.
-    //thrust::host_vector<thrust::complex<double>> skyp_h(oversampg*oversampg,{0.0,0.0});
+    thrust::host_vector<thrust::complex<double>> skyp_h(oversampg*oversampg,{0.0,0.0});
     
-    // // std::memcpy(skyp_h.data(),skyp.dp(),sizeof(std::complex<double>) * oversampg * oversampg);
-    // thrust::device_vector<thrust::complex<double>> skyp_d = skyp_h;    
-    // thrust::device_vector<thrust::complex<double>> wstacks(oversampg*oversampg,{0.0,0.0});
-    // std::cout << "done\n";
+    std::memcpy(skyp_h.data(),skyp.dp(),sizeof(std::complex<double>) * oversampg * oversampg);
+    thrust::device_vector<thrust::complex<double>> skyp_d = skyp_h;    
+    thrust::device_vector<thrust::complex<double>> wstacks(oversampg*oversampg,{0.0,0.0});
+    std::cout << "done\n";
 
     
-    // // Setup FFT plan for our image/grid using cufft.
-    // std::cout << "Planning CUDA FFT's... " << std::flush;
-    // cufftHandle plan;
-    // cuFFTError_check(cufftPlan2d(&plan,oversampg,oversampg,CUFFT_Z2Z));
-    // std::cout << "done\n";
+    // Setup FFT plan for our image/grid using cufft.
+    std::cout << "Planning CUDA FFT's... " << std::flush;
+    cufftHandle plan;
+    cuFFTError_check(cufftPlan2d(&plan,oversampg,oversampg,CUFFT_Z2Z));
+    std::cout << "done\n";
     
-    // // Bin our u/v/w prediction values in terms of w-plane contribution.
-    // double w_min = *std::min_element(std::begin(w), std::end(w));
-    // struct w_plane_locs <double> *wbins;
-    // cudaError_check(cudaMallocManaged((void **)&wbins, sizeof(struct w_plane_locs <double>) * w_planes));
+    // Bin our u/v/w prediction values in terms of w-plane contribution.
+    double w_min = *std::min_element(std::begin(w), std::end(w));
+    struct w_plane_locs <double> *wbins;
+    cudaError_check(cudaMallocManaged((void **)&wbins, sizeof(struct w_plane_locs <double>) * w_planes));
 
 
     
-    // thrust::device_vector<thrust::complex<double> > visibilities_d(u.size(),{0.0,0.0});
-    // thrust::host_vector<thrust::complex<double> > visibilities_h;
-    // bin_predictions_cu(theta, lam, u, v, w, du, dw, w_min,
-    // 		       aa_support_uv, aa_support_w, wbins,
-    // 		       grid_conv_uv, grid_conv_w);
+    thrust::device_vector<thrust::complex<double> > visibilities_d(u.size(),{0.0,0.0});
+    thrust::host_vector<thrust::complex<double> > visibilities_h;
+    bin_predictions_cu(theta, lam, u, v, w, du, dw, w_min,
+    		       aa_support_uv, aa_support_w, wbins,
+    		       grid_conv_uv, grid_conv_w);
     
 
-    // // FFT Shift our Sky and Fresnel Pattern
-    // fft_shift_kernel <thrust::complex<double>>
-    // 	<<< dimGrid, dimBlock >>>
-    // 	((thrust::complex<double>*)thrust::raw_pointer_cast(wtransfer_d.data()),
-    // 	oversampg);
-    // fft_shift_kernel <thrust::complex<double>>
-    // 	<<< dimGrid, dimBlock >>>
-    // 	((thrust::complex<double>*)thrust::raw_pointer_cast(skyp_d.data()),
-    // 	 oversampg);
+    // FFT Shift our Sky and Fresnel Pattern
+    fft_shift_kernel <thrust::complex<double>>
+    	<<< dimGrid, dimBlock >>>
+    	((thrust::complex<double>*)thrust::raw_pointer_cast(wtransfer_d.data()),
+    	oversampg);
+    fft_shift_kernel <thrust::complex<double>>
+    	<<< dimGrid, dimBlock >>>
+    	((thrust::complex<double>*)thrust::raw_pointer_cast(skyp_d.data()),
+    	 oversampg);
     
-    // fresnel_sky_mul <double>
-    // 	<<< dimGrid, dimBlock >>>
-    // 	((thrust::complex<double>*)thrust::raw_pointer_cast(skyp_d.data()),
-    // 	 (thrust::complex<double>*)thrust::raw_pointer_cast(wtransfer_d.data()),
-    // 	 skyp_d.size(),
-    // 	 floor(-w_planes/2));
+    fresnel_sky_mul <double>
+    	<<< dimGrid, dimBlock >>>
+    	((thrust::complex<double>*)thrust::raw_pointer_cast(skyp_d.data()),
+    	 (thrust::complex<double>*)thrust::raw_pointer_cast(wtransfer_d.data()),
+    	 oversampg,
+    	 floor(-w_planes/2));
 
     
-    // for (int wplane = 0; wplane < w_planes; ++wplane){
-    // 	cuFFTError_check(cufftExecZ2Z(plan,
-    // 				      (cuDoubleComplex*)thrust::raw_pointer_cast(skyp_d.data()),
-    // 				      (cuDoubleComplex*)thrust::raw_pointer_cast(wstacks.data()),
-    // 				      CUFFT_FORWARD));
+    for (int wplane = 0; wplane < w_planes; ++wplane){
+    	cuFFTError_check(cufftExecZ2Z(plan,
+    				      (cuDoubleComplex*)thrust::raw_pointer_cast(skyp_d.data()),
+    				      (cuDoubleComplex*)thrust::raw_pointer_cast(wstacks.data()),
+    				      CUFFT_FORWARD));
 
-    // 	fresnel_sky_mul <double>
-    // 	    <<< dimGrid, dimBlock >>>
-    // 	    ((thrust::complex<double>*)thrust::raw_pointer_cast(skyp_d.data()),
-    // 	     (thrust::complex<double>*)thrust::raw_pointer_cast(wtransfer_d.data()),
-    // 	     skyp_d.size(),
-    // 	     1);
+    	fresnel_sky_mul <double>
+    	    <<< dimGrid, dimBlock >>>
+    	    ((thrust::complex<double>*)thrust::raw_pointer_cast(skyp_d.data()),
+    	     (thrust::complex<double>*)thrust::raw_pointer_cast(wtransfer_d.data()),
+    	     oversampg,
+    	     1);
 
 	
-    // }
+    }
     
     std::complex<double> vis = {0.0,0.0};
     return vis;
