@@ -161,12 +161,18 @@ extern "C" {
 #endif
 
 
-#ifdef CUDA_ACCELERATION    
+#ifdef CUDA_ACCELERATION
+
+
+
+    
   int free_vis_CUDA(struct vis_data *vis);
     
   int load_vis_CUDA(const char *filename, struct vis_data *vis,
 		    double min_len, double max_len);
 
+  int load_sep_kern_CUDA(const char *filename, struct sep_kernel_data *sepkern);
+    
   void flatten_visibilities_CUDA(struct vis_data *vis, struct flat_vis_data *flat_vis);
 
       //You must compile both hdf5.c AND your kernel with -DVAR_W_KERN to use variable w-kernels.
