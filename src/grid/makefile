@@ -16,8 +16,8 @@ clean:
 	rm -f *.out
 
 grid.out: grid_cuda.o grid.o 
-	$(NVCC) $^ -o ../../bin/grid.out $(LDFLAGS) 
-
+	$(NVCC) $^ -o $@ $(LDFLAGS) 
+	cp $@ ../../bin/
 grid_cuda.o: grid_cuda.cu
 	$(NVCC) -c $< -o $@ $(CXXFLAGS) $(CUDA_FLAGS) 
 

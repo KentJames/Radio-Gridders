@@ -409,7 +409,7 @@ __host__ inline void bin_flat_uv_bins(struct flat_vis_data *vis_bins,
 	     bin_chunk_count[cyi * chunk_count + cxi]);
     }
   }
-  int total_vis;
+  int total_vis = 0;
   for (int i = 0; i < chunk_count * chunk_count; ++i){
     total_vis += vis_bins[i].number_of_vis;
   }

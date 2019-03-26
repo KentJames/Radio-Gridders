@@ -21,4 +21,4 @@ CUDA_INCDIR   ?= $(CUDA_HOME)/include
 
 ALIGNMENT ?= 4096 # Memory allocation alignment
 
-CUDA = 1 # Enables CUDA Acceleration
+#CUDA = 1 # Enables CUDA Acceleration

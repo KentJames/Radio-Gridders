@@ -9,7 +9,7 @@ endif
 ifndef CUDA
 override LDFLAGS +=  -lm  -L../common -lhdf5_r -lfftw3 -lhdf5 
 else
-override LDFLAGS +=  -lm  -L../common -lhdf5_cu -lfftw3 -lhdf5 -L/usr/local/cuda/lib64 -lcuda -lcudart -lcufft
+override LDFLAGS +=  -lm  -L../common -lhdf5_cu -lfftw3 -lhdf5 -L/usr/local/cuda/lib -lcuda -lcudart -lcufft
 endif
 
 override CUDA_FLAGS +=-std=c++14 -I../common
@@ -26,7 +26,7 @@ clean:
 
 wstack.out: wstack.o libpredict.a
 	$(CXX) wstack.o -o $@  -L ./ -lpredict $(LDFLAGS)
-	mv $@ ../../bin/
+	cp $@ ../../bin/
 
 wstack.o: wstack.cpp
 	$(CXX) -c $^ -o $@ $(CXXFLAGS)

@@ -254,7 +254,7 @@ int main(int argc, char **argv) {
 	std::complex<double> visq;
 	std::complex<double> vis;
 	std::vector<double> points = generate_random_points(npts, theta);
-
+#ifdef CUDA_ACCELERATION
 	if(cuda_acceleration){
 
 	    // Placeholder for now.
@@ -282,7 +282,7 @@ int main(int argc, char **argv) {
 	    
 
 	} else {
-	    
+#endif	    
 	    if (checkCmdLineFlag(argc, (const char **) argv, "pu") == 0 ||
 		checkCmdLineFlag(argc, (const char **) argv, "pv") == 0 ||
 		checkCmdLineFlag(argc, (const char **) argv, "pw") == 0) {
@@ -315,9 +315,9 @@ int main(int argc, char **argv) {
 						      sepkern_w,
 						      sepkern_lm,
 						      sepkern_n);
-
+#ifdef CUDA_ACCELERATION
 	}
-
+#endif
 
 	std::cout << "W-Stacks Prediction: " << vis << "\n";
 
