@@ -1,6 +1,4 @@
-#ifdef CUDA_ACCELERATION
-#include "radio.cuh"
-#endif
+
 #include "hdf5.cuh"
 
 #ifndef WSTACK_H

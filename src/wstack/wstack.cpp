@@ -8,6 +8,9 @@
 
 #include "helper_string.h"
 #include "wstack_common.h"
+#ifdef CUDA_ACCELERATION
+#include "predict.cuh"
+#endif
 
 void showHelp(){
 
@@ -27,7 +30,6 @@ void showHelp(){
     std::cout<<"\t-sepkern_w           Seperable Sze-Tan Grid Convolution Kernels for W\n";
     std::cout<<"\t-sepkern_lm          Seperable Sze-Tan Grid Correction Kernels for l/m\n";
     std::cout<<"\t-sepkern_n           Seperable Sze-Tan Grid Correction Kernels for n\n\n";
-    
 
     std::cout<<"Predict Parameters: \n";
     std::cout<<"\t-pu                  Predict u value\n";
@@ -47,10 +49,11 @@ int main(int argc, char **argv) {
 	showHelp();
 	return 0;
     }
-
+    
 #ifdef CUDA_ACCELERATION
     //Get information on GPU's in system.
     std::cout << "CUDA System Information: \n\n";
+    int cuda_acceleration = 0;
     int numberofgpus;
     int dev_no = 0;
     
@@ -80,7 +83,7 @@ int main(int argc, char **argv) {
 	std::cout << "\n";
          
     }
-    */
+
 
     if (checkCmdLineFlag(argc, (const char **) argv, "cuda")){
 	cuda_acceleration = getCmdLineArgumentInt(argc, (const char **) argv, "cuda");
@@ -93,7 +96,7 @@ int main(int argc, char **argv) {
     cudaSetDevice(dev_no);
 #endif
 
-    int cuda_acceleration = 0;
+    
     double theta = false;
     double lambda = false;
     int mode = 0;
@@ -246,44 +249,74 @@ int main(int argc, char **argv) {
        PREDICT
     */   
     if (mode == 0){
-	
-	if (checkCmdLineFlag(argc, (const char **) argv, "pu") == 0 ||
-	    checkCmdLineFlag(argc, (const char **) argv, "pv") == 0 ||
-	    checkCmdLineFlag(argc, (const char **) argv, "pw") == 0) {
-	    std::cout << "No u/v/w co-ordinates specified for predict!\n";
-	    showHelp();	  
-	    return 0;
-	}
-	else {
-	    pu =  getCmdLineArgumentDouble(argc, (const char **) argv, "pu");
-	    pv =  getCmdLineArgumentDouble(argc, (const char **) argv, "pv");
-	    pw =  getCmdLineArgumentDouble(argc, (const char **) argv, "pw");
-	}
-	
-	std::cout << "##### W Stacking #####\n";
+
+
+	std::complex<double> visq;
+	std::complex<double> vis;
 	std::vector<double> points = generate_random_points(npts, theta);
-	std::cout << "Visibility at: " << pu << " " << pv << " " << pw << "\n";
-	std::complex<double> visq = predict_visibility_quantized(points,theta,lambda,pu,pv,pw);
-	std::complex<double> visd = predict_visibility(points,pu,pv,pw);
-	std::cout << "DFT Prediction: " << visq << "\n";
-	std::cout << " : " << visd << "\n";
-	std::complex<double> vis = wstack_predict(theta,
-						  lambda,
-						  points,
-						  pu,
-						  pv,
-						  pw,
-						  du,
-						  dw,
-						  support_uv,
-						  support_w,
-						  x0,
-						  sepkern_uv,
-						  sepkern_w,
-						  sepkern_lm,
-						  sepkern_n);
 
+	if(cuda_acceleration){
 
+	    // Placeholder for now.
+	    // TODO: Add import from file.
+
+	    std::vector<double> uvec(3,14.3);
+	    std::vector<double> vvec(3,12.2);
+	    std::vector<double> wvec(3,5.6);
+
+	    vis = wstack_predict_cu(theta,
+				    lambda,
+				    points,
+				    uvec, vvec, wvec,
+				    du, dw,
+				    support_uv,
+				    support_w,
+				    x0,
+				    sepkern_uv,
+				    sepkern_w,
+				    sepkern_lm,
+				    sepkern_w);
+				    
+				    
+	    
+	    
+
+	} else {
+	    
+	    if (checkCmdLineFlag(argc, (const char **) argv, "pu") == 0 ||
+		checkCmdLineFlag(argc, (const char **) argv, "pv") == 0 ||
+		checkCmdLineFlag(argc, (const char **) argv, "pw") == 0) {
+		std::cout << "No u/v/w co-ordinates specified for predict!\n";
+		showHelp();	  
+		return 0;
+	    }
+	    else {
+		pu =  getCmdLineArgumentDouble(argc, (const char **) argv, "pu");
+		pv =  getCmdLineArgumentDouble(argc, (const char **) argv, "pv");
+		pw =  getCmdLineArgumentDouble(argc, (const char **) argv, "pw");
+	    }
+	
+	    std::cout << "##### W Stacking #####\n"; 
+	    std::cout << "Visibility at: " << pu << " " << pv << " " << pw << "\n";
+	    visq = predict_visibility_quantized(points,theta,lambda,pu,pv,pw);
+	    std::cout << "DFT Prediction: " << visq << "\n";
+	    vis = wstack_predict(theta,
+						      lambda,
+						      points,
+						      pu,
+						      pv,
+						      pw,
+						      du,
+						      dw,
+						      support_uv,
+						      support_w,
+						      x0,
+						      sepkern_uv,
+						      sepkern_w,
+						      sepkern_lm,
+						      sepkern_n);
+
+	}
 
 
 	std::cout << "W-Stacks Prediction: " << vis << "\n";
@@ -301,6 +334,12 @@ int main(int argc, char **argv) {
     */
     else {
 	// Does nothing for now.
+
+	
+
+
+
+	
 	return 0;
     }
     return 0;

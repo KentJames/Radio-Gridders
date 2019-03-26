@@ -8,6 +8,7 @@
 #include <vector>
 #include <cmath>
 #include <random>
+#include <algorithm>
 #include <fftw3.h>
 
 #include "wstack_common.h"

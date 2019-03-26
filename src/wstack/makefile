@@ -1,12 +1,22 @@
 include ../../user.mk
 
+ifndef CUDA
 override CXXFLAGS +=-std=c++14 -I../common
-override LDFLAGS += -lhdf5 -lm  -L../common -lhdf5_r -lfftw3
+else
+override CXXFLAGS +=-DCUDA_ACCELERATION -std=c++14 -I../common -I/usr/local/cuda/include
+endif
+
+ifndef CUDA
+override LDFLAGS +=  -lm  -L../common -lhdf5_r -lfftw3 -lhdf5 
+else
+override LDFLAGS +=  -lm  -L../common -lhdf5_cu -lfftw3 -lhdf5 -L/usr/local/cuda/lib64 -lcuda -lcudart -lcufft
+endif
+
 override CUDA_FLAGS +=-std=c++14 -I../common
 
 BINDIR = ./
 
-all: ../../bin/wstack.out
+all: wstack.out
 
 
 clean:
@@ -14,8 +24,9 @@ clean:
 	rm -f *.out
 
 
-../../bin/wstack.out: wstack.o libpredict.a
-	$(CXX) wstack.o -o $@ $(LDFLAGS) -L ./ -lpredict
+wstack.out: wstack.o libpredict.a
+	$(CXX) wstack.o -o $@  -L ./ -lpredict $(LDFLAGS)
+	mv $@ ../../bin/
 
 wstack.o: wstack.cpp
 	$(CXX) -c $^ -o $@ $(CXXFLAGS)
@@ -26,7 +37,7 @@ predict.o: predict.cpp
 
 ifndef CUDA
 libpredict.a: predict.o
-	ar rcs $@ $^
+	ar rcs $@ $^ 
 else
 predict_cu.o: predict.cu
 	$(NVCC) -c $^ -o $@ $(CUDA_FLAGS)
