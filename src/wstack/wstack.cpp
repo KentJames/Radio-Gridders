@@ -263,8 +263,8 @@ int main(int argc, char **argv) {
 	    std::vector<double> uvec(3,14.3);
 	    std::vector<double> vvec(3,12.2);
 	    std::vector<double> wvec(3,5.6);
-
-	    vis = wstack_predict_cu(theta,
+	    std::vector<std::complex<double> > vis(3,{0.0,0.0});
+	    vis = wstack_predict_cu_3D(theta,
 				    lambda,
 				    points,
 				    uvec, vvec, wvec,
@@ -301,20 +301,20 @@ int main(int argc, char **argv) {
 	    visq = predict_visibility_quantized(points,theta,lambda,pu,pv,pw);
 	    std::cout << "DFT Prediction: " << visq << "\n";
 	    vis = wstack_predict(theta,
-						      lambda,
-						      points,
-						      pu,
-						      pv,
-						      pw,
-						      du,
-						      dw,
-						      support_uv,
-						      support_w,
-						      x0,
-						      sepkern_uv,
-						      sepkern_w,
-						      sepkern_lm,
-						      sepkern_n);
+				 lambda,
+				 points,
+				 pu,
+				 pv,
+				 pw,
+				 du,
+				 dw,
+				 support_uv,
+				 support_w,
+				 x0,
+				 sepkern_uv,
+				 sepkern_w,
+				 sepkern_lm,
+				 sepkern_n);
 #ifdef CUDA_ACCELERATION
 	}
 #endif
