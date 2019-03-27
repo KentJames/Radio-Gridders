@@ -27,6 +27,109 @@
 
 
 
+// First set of kernels are for doing individual visibility contribution processing.
+
+template <typename FloatType>
+__global__ void accumulate_cont(thrust::complex<FloatType> *grid,
+				thrust::complex<FloatType> *accum_array,
+				thrust::complex<FloatType> *pre_accum,
+				struct vis_contribution <FloatType> *viscont,
+				std::size_t supp_size,
+				std::size_t grid_size){
+
+    std::size_t x = blockIdx.x * blockDim.x + threadIdx.x;
+    std::size_t y = blockIdx.y * blockDim.y + threadIdx.y;
+    
+    if(x < supp_size && y < supp_size){
+	pre_accum[ y * supp_size + x] = grid[ viscont->v[y] * grid_size
+					      + viscont->u[x]] *
+	    viscont->gcf_u[x] * viscont->gcf_v[y];
+    }
+    
+}
+
+
+#define blockSize_reduc 1024
+#define gridSize_reduc 24
+
+template <typename FloatType>
+__global__ void _reduce_to_vis(thrust::complex<FloatType> *pre_accum, //In
+			      thrust::complex<FloatType> *accum_array, //Out
+			      std::size_t accum_array_index,
+			      std::size_t pre_accum_size){
+
+    std::size_t idx = threadIdx.x;
+    thrust::complex<FloatType> sum = 0;
+    for (std::size_t i = idx; i < pre_accum_size; i += blockSize_reduc)
+        sum += pre_accum[i];
+    __shared__ thrust::complex<FloatType> r[blockSize_reduc];
+    r[idx] = sum;
+    __syncthreads();
+    for (std::size_t size = blockSize_reduc/2; size>0; size/=2) { //uniform
+        if (idx<size)
+            r[idx] += r[idx+size];
+        __syncthreads();
+    }
+    if (idx == 0)
+        accum_array[accum_array_index] += r[0];
+
+    
+}
+
+/* ---------------------------------------------------------------------------- */
+
+// Second set of kernels are for doing the entire plane at once.
+
+template <typename FloatType>
+__global__ void accumulate__all_conts(thrust::complex<FloatType> *grid,
+				thrust::complex<FloatType> *accum_array,
+				thrust::complex<FloatType> *pre_accum,
+				struct vis_contribution <FloatType> *viscont,
+				std::size_t supp_size,
+				std::size_t grid_size,
+				std::size_t num_contributions){
+
+    std::size_t x = blockIdx.x * blockDim.x + threadIdx.x;
+    std::size_t y = blockIdx.y * blockDim.y + threadIdx.y;
+    std::size_t z = blockIdx.z; // Used to index viscont
+    
+    
+    if(x < supp_size && y < supp_size && z < num_contributions){
+	pre_accum[ (z * supp_size * supp_size) +
+		   y * supp_size + x] = grid[ &viscont[z]->v[y] * grid_size
+					      + &viscont[z]->u[x]] *
+	    &viscont[z]->gcf_u[x] *
+	    &viscont[z]->gcf_v[y];
+    }
+}
+
+template <typename FloatType>
+__global__ void _reduce__all_to_vis(thrust::complex<FloatType> *pre_accum, //In
+				    thrust::complex<FloatType> *accum_array, //Out
+				    thrust::complex<FloatType> *r,
+				    std::size_t *accum_array_index,
+				    std::size_t pre_accum_size){
+
+    std::size_t idx = threadIdx.x;
+    thrust::complex<FloatType> sum = 0;
+    for (std::size_t i = idx; i < pre_accum_size; i += blockSize_reduc)
+        sum += pre_accum[blockIdx.x * pre_accum_size + i];
+    r[blockIdx.x * pre_accum_size + idx] = sum;
+    __syncthreads();
+    for (std::size_t size = blockSize_reduc/2; size>0; size/=2) { //uniform
+        if (idx<size)
+            r[blockIdx.x * pre_accum_size + idx] += r[blockIdx.x * pre_accum_size + idx + size];
+        __syncthreads();
+    }
+    if (idx == 0)
+        accum_array[accum_array_index[blockIdx.x]] += r[blockIdx.x * pre_accum_size];
+
+    
+}
+
+
+/* ---------------------------------------------------------------------------- */
+
 
 //Elementwise multiplication of subimg with fresnel.
 template <typename FloatType>
