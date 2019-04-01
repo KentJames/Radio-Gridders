@@ -462,6 +462,7 @@ std::vector<std::complex<double>> wstack_predict(double theta,
     std::vector<std::complex<double> > visibilities(uvwvec.size(),{0.0,0.0});
 
     #pragma omp parallel
+    #pragma omp for
     for (std::size_t i = 0; i < uvwvec.size(); ++i){
 
     	visibilities[i] = deconvolve_visibility(uvwvec[i],
@@ -593,7 +594,8 @@ std::vector<std::vector<std::complex<double>>> wstack_predict_lines(double theta
     std::vector<std::vector<std::complex<double> > > visibilities(uvwvec.size());
 
     // To make threads play nice, pre-initialise  
-    //#pragma omp parallel
+    #pragma omp parallel
+    #pragma omp for
     for (std::size_t line = 0; line < uvwvec.size(); ++ line){
 	visibilities[line].resize(uvwvec[line].size(),0.0);
 	for (std::size_t i = 0; i < uvwvec[line].size(); ++i){
