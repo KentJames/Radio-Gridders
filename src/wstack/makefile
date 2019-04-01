@@ -1,15 +1,15 @@
 include ../../user.mk
 
 ifndef CUDA
-override CXXFLAGS +=-std=c++14 -I../common
+override CXXFLAGS += -fopenmp -std=c++14 -I../common
 else
 override CXXFLAGS +=-DCUDA_ACCELERATION -std=c++14 -I../common -I/usr/local/cuda/include
 endif
 
 ifndef CUDA
-override LDFLAGS +=  -lm  -L../common -lhdf5_r -lfftw3 -lhdf5 
+override LDFLAGS +=  -lm  -L../common -lomp -lhdf5_r -lfftw3 -lhdf5 
 else
-override LDFLAGS +=  -lm  -L../common -lhdf5_cu -lfftw3 -lhdf5 -L/usr/local/cuda/lib -lcuda -lcudart -lcufft
+override LDFLAGS +=  -lm  -L../common -lomp -lhdf5_cu -lfftw3 -lhdf5 -L/usr/local/cuda/lib -lcuda -lcudart -lcufft
 endif
 
 override CUDA_FLAGS +=-std=c++14 -I../common

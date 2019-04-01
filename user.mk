@@ -1,9 +1,9 @@
-CC	      ?= clang
-CXX           ?= clang++
-NVCC          ?= nvcc
-LINKER        ?= clang++
+CC	      = clang
+CXX           = clang++
+NVCC          = nvcc
+LINKER        = clang++
 CPPFLAGS      ?=
-CXXFLAGS      ?= -O3 -Wall -pedantic
+CXXFLAGS      ?= -O3 -Wall -pedantic 
 NVCCFLAGS     ?= -O3 -Xcompiler "-Wall" #-Xptxas -v
 LDFLAGS       ?=
 DOXYGEN       ?= doxygen

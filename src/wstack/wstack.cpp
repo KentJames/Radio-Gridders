@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <complex>
 #include <random>
+#include <numeric>
 
 //CUDA Includes
 
@@ -32,6 +33,7 @@ void showHelp(){
     std::cout<<"\t-sepkern_n           Seperable Sze-Tan Grid Correction Kernels for n\n\n";
 
     std::cout<<"Predict Parameters: \n";
+    std::cout<<"\t-predict_file        CSV File giving U/V/W Files to predict\n";
     std::cout<<"\t-pu                  Predict u value\n";
     std::cout<<"\t-pv                  Predict v value\n";
     std::cout<<"\t-pw                  Predict w value\n\n";
@@ -251,23 +253,52 @@ int main(int argc, char **argv) {
     if (mode == 0){
 
 
-	std::complex<double> visq;
-	std::complex<double> vis;
+	std::vector<std::complex<double>> visq;
+	std::vector<std::complex<double>>  vis;
 	std::vector<double> points = generate_random_points(npts, theta);
+
+
+	// STOP GAP Measure. 
+	std::vector<double> uvec(300000,14.6);
+	std::vector<double> vvec(300000,-4.5);
+	std::vector<double> wvec(300000,0.0);
+	std::vector<std::vector<double> > uvwvec(300000,{0.0,0.0,0.0});
+
+	
+	for (std::size_t i = 0; i < uvec.size(); ++i){
+	    uvwvec[i][0] = uvec[i];
+	    uvwvec[i][1] = vvec[i];
+	    uvwvec[i][2] = wvec[i];
+	    
+	}
+
+	std::vector<std::vector<double> > uvwvec_cli(1,std::vector<double>(3,0.0));
+	
+	if (checkCmdLineFlag(argc, (const char **) argv, "pu") == 0 ||
+	    checkCmdLineFlag(argc, (const char **) argv, "pv") == 0 ||
+	    checkCmdLineFlag(argc, (const char **) argv, "pw") == 0) {
+	    std::cout << "No u/v/w co-ordinates specified for predict!\n";
+	    showHelp();	  
+	    return 0;
+	}
+	else {
+	    uvwvec_cli[0][0] =  getCmdLineArgumentDouble(argc, (const char **) argv, "pu");
+	    uvwvec_cli[0][1] =  getCmdLineArgumentDouble(argc, (const char **) argv, "pv");
+	    uvwvec_cli[0][2] =  getCmdLineArgumentDouble(argc, (const char **) argv, "pw");
+	}
+
+	
+	
 #ifdef CUDA_ACCELERATION
 	if(cuda_acceleration){
 
 	    // Placeholder for now.
 	    // TODO: Add import from file.
 
-	    std::vector<double> uvec(3,14.3);
-	    std::vector<double> vvec(3,12.2);
-	    std::vector<double> wvec(3,5.6);
-
 	    vis = wstack_predict_cu(theta,
 				    lambda,
 				    points,
-				    uvec, vvec, wvec,
+				    uvwvec,
 				    du, dw,
 				    support_uv,
 				    support_w,
@@ -283,46 +314,45 @@ int main(int argc, char **argv) {
 
 	} else {
 #endif	    
-	    if (checkCmdLineFlag(argc, (const char **) argv, "pu") == 0 ||
-		checkCmdLineFlag(argc, (const char **) argv, "pv") == 0 ||
-		checkCmdLineFlag(argc, (const char **) argv, "pw") == 0) {
-		std::cout << "No u/v/w co-ordinates specified for predict!\n";
-		showHelp();	  
-		return 0;
-	    }
-	    else {
-		pu =  getCmdLineArgumentDouble(argc, (const char **) argv, "pu");
-		pv =  getCmdLineArgumentDouble(argc, (const char **) argv, "pv");
-		pw =  getCmdLineArgumentDouble(argc, (const char **) argv, "pw");
-	    }
-	
+	    
 	    std::cout << "##### W Stacking #####\n"; 
-	    std::cout << "Visibility at: " << pu << " " << pv << " " << pw << "\n";
-	    visq = predict_visibility_quantized(points,theta,lambda,pu,pv,pw);
-	    std::cout << "DFT Prediction: " << visq << "\n";
+
+
+
+	    
+	    visq = predict_visibility_quantized_vec(points,theta,lambda,uvwvec);
 	    vis = wstack_predict(theta,
-						      lambda,
-						      points,
-						      pu,
-						      pv,
-						      pw,
-						      du,
-						      dw,
-						      support_uv,
-						      support_w,
-						      x0,
-						      sepkern_uv,
-						      sepkern_w,
-						      sepkern_lm,
-						      sepkern_n);
+				 lambda,
+				 points,
+				 uvwvec,
+				 du,
+				 dw,
+				 support_uv,
+				 support_w,
+				 x0,
+				 sepkern_uv,
+				 sepkern_w,
+				 sepkern_lm,
+				 sepkern_n);
 #ifdef CUDA_ACCELERATION
 	}
 #endif
 
-	std::cout << "W-Stacks Prediction: " << vis << "\n";
+	if(npts < 10){
+	    std::for_each(visq.begin(), visq.end(), [](const std::complex<double>& n) { std::cout << n << " ";});
+	    std::cout << "\n";
+	    std::for_each(vis.begin(), vis.end(), [](const std::complex<double>& n) { std::cout << n << " ";});
+	    std::cout << "\n";
+	}
+	
+	std::vector<double> error (visq.size(), 0.0);
+	std::transform(visq.begin(),visq.end(),vis.begin(),error.begin(), [npts](std::complex<double> dft,
+										 std::complex<double> wstack)
+		       -> double { return std::abs(dft-wstack)/npts;});
 
-	std::cout << "Error: " << std::abs(vis - visq) / npts << "\n";
-
+	//std::for_each(error.begin(), error.end(), [](const double n) { std::cout << n << " ";});
+	double agg_error = std::accumulate(error.begin(), error.end(),0.0);
+	std::cout << "Aggregate Error: " << agg_error/error.size()<<"\n";
       
       
 
