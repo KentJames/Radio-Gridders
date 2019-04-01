@@ -81,13 +81,12 @@ __global__ void _reduce_to_vis(thrust::complex<FloatType> *pre_accum, //In
 // Second set of kernels are for doing the entire plane at once.
 
 template <typename FloatType>
-__global__ void accumulate__all_conts(thrust::complex<FloatType> *grid,
-				thrust::complex<FloatType> *accum_array,
-				thrust::complex<FloatType> *pre_accum,
-				struct vis_contribution <FloatType> *viscont,
-				std::size_t supp_size,
-				std::size_t grid_size,
-				std::size_t num_contributions){
+__global__ void accumulate_all_conts(thrust::complex<FloatType> *grid,
+				      thrust::complex<FloatType> *pre_accum,
+				      struct vis_contribution <FloatType> *viscont,
+				      std::size_t supp_size,
+				      std::size_t grid_size,
+				      std::size_t num_contributions){
 
     std::size_t x = blockIdx.x * blockDim.x + threadIdx.x;
     std::size_t y = blockIdx.y * blockDim.y + threadIdx.y;
@@ -96,15 +95,15 @@ __global__ void accumulate__all_conts(thrust::complex<FloatType> *grid,
     
     if(x < supp_size && y < supp_size && z < num_contributions){
 	pre_accum[ (z * supp_size * supp_size) +
-		   y * supp_size + x] = grid[ &viscont[z]->v[y] * grid_size
-					      + &viscont[z]->u[x]] *
-	    &viscont[z]->gcf_u[x] *
-	    &viscont[z]->gcf_v[y];
+		   y * supp_size + x] = grid[ viscont[z].locs_v[y] * grid_size
+					      + viscont[z].locs_u[x]] *
+	    viscont[z].gcf_u[x] *
+	    viscont[z].gcf_v[y];
     }
 }
 
 template <typename FloatType>
-__global__ void _reduce__all_to_vis(thrust::complex<FloatType> *pre_accum, //In
+__global__ void _reduce_all_to_vis(thrust::complex<FloatType> *pre_accum, //In
 				    thrust::complex<FloatType> *accum_array, //Out
 				    thrust::complex<FloatType> *r,
 				    std::size_t *accum_array_index,
@@ -257,7 +256,7 @@ __host__ void bin_predictions_cu(double theta,
 }
 				 
 // We return std::complex to keep interface consistency with the C++ code.
-__host__ std::complex<double> wstack_predict_cu(double theta,
+__host__ std::vector<std::complex<double>> wstack_predict_cu_2D(double theta,
 						double lam,
 						const std::vector<double>& points,
 						std::vector<double> u,
@@ -352,13 +351,40 @@ __host__ std::complex<double> wstack_predict_cu(double theta,
     	 oversampg,
     	 floor(-w_planes/2));
 
+    // Deconvolution Grid Parameters
+    int wstack_gs_reduc = 32;
+    int wstack_vs_reduc = std::ceil(aa_support_uv/wstack_gs_reduc);
     
     for (int wplane = 0; wplane < w_planes; ++wplane){
+
+
+	struct w_plane_locs <double> *wbin = &wbins[wplane];
+	std::size_t contrn = wbin->num_contribs;
+	thrust::device_vector<thrust::complex<double> > pre_accum(contrn * aa_support_uv * aa_support_uv,{0.0,0.0});
+
+	dim3 dimGrid_reduc(wstack_vs_reduc,wstack_vs_reduc,contrn);
+	dim3 dimBlock_reduc(wstack_gs_reduc,wstack_gs_reduc,contrn);
+	thrust::device_vector<thrust::complex<double> > intermediate_reduction_arr(contrn * aa_support_uv * aa_support_uv,{0.0,0.0}); 	
     	cuFFTError_check(cufftExecZ2Z(plan,
     				      (cuDoubleComplex*)thrust::raw_pointer_cast(skyp_d.data()),
     				      (cuDoubleComplex*)thrust::raw_pointer_cast(wstacks.data()),
     				      CUFFT_FORWARD));
+	fft_shift_kernel <thrust::complex<double>>
+	    <<< dimGrid, dimBlock >>>
+	    ((thrust::complex<double>*)thrust::raw_pointer_cast(wstacks.data()),
+	     oversampg);
 
+	accumulate_all_conts <double>
+	    <<< dimGrid_reduc, dimBlock_reduc >>>
+	    ((thrust::complex<double>*)thrust::raw_pointer_cast(wstacks.data()),
+	     (thrust::complex<double>*)thrust::raw_pointer_cast(pre_accum.data()),
+	     wbin->visc,
+	     aa_support_uv,
+	     oversampg,
+	     wbin->num_contribs);
+	    
+
+	
     	fresnel_sky_mul <double>
     	    <<< dimGrid, dimBlock >>>
     	    ((thrust::complex<double>*)thrust::raw_pointer_cast(skyp_d.data()),
@@ -369,7 +395,124 @@ __host__ std::complex<double> wstack_predict_cu(double theta,
 	
     }
     
-    std::complex<double> vis = {0.0,0.0};
+    std::vector<std::complex<double> > vis(1,{0.0,0.0});
+    return vis;
+
+}
+
+    // We return std::complex to keep interface consistency with the C++ code.
+__host__ std::vector<std::complex<double>> wstack_predict_cu_3D(double theta,
+						double lam,
+						const std::vector<double>& points,
+						std::vector<double> u,
+						std::vector<double> v,
+						std::vector<double> w,
+						double du,
+						double dw,
+						int aa_support_uv,
+						int aa_support_w,
+						double x0,
+						struct sep_kernel_data *grid_conv_uv,
+						struct sep_kernel_data *grid_conv_w,
+						struct sep_kernel_data *grid_corr_lm,
+						struct sep_kernel_data *grid_corr_n){
+    
+    int grid_size = static_cast<int>(std::floor(theta * lam));
+    double x0ih = std::round(0.5/x0);
+    int oversampg = static_cast<int>(x0ih * grid_size);
+    assert(oversampg > grid_size);
+
+
+    // CUDA Grid Parameters
+    int wstack_gs = 32;
+    int wstack_bs = grid_size/wstack_gs;
+    dim3 dimGrid(wstack_bs,wstack_bs);
+    dim3 dimBlock(wstack_gs,wstack_gs);
+    
+
+    // Fresnel Pattern
+    
+    vector2D<std::complex<double>> wtransfer = generate_fresnel(theta,lam,dw,x0);
+    thrust::host_vector<thrust::complex<double>> wtransfer_h(oversampg*oversampg,{0.0,0.0});
+    std::memcpy(wtransfer_h.data(),wtransfer.dp(),sizeof(std::complex<double>) * oversampg * oversampg);
+    thrust::device_vector<thrust::complex<double>> wtransfer_d = wtransfer_h;
+    
+    // Work out range of W-Planes    
+    double max_w = std::sin(theta/2) * std::sqrt(2*(grid_size*grid_size));
+    int w_planes = std::ceil(max_w/dw) + aa_support_w + 1;
+
+    std::cout << "Max W: " << max_w << "\n";
+    std::cout << "W Planes: " << w_planes << "\n";
+
+
+    std::cout << "Generating sky... " << std::flush;
+    vector2D<std::complex<double>> skyp(oversampg,oversampg,{0.0,0.0});
+    generate_sky(points,skyp, theta, lam, du, dw, x0, grid_corr_lm, grid_corr_n);
+    
+
+    // We just copy into a thrust vector to make life easier from here on out.
+    thrust::host_vector<thrust::complex<double>> skyp_h(oversampg*oversampg,{0.0,0.0});
+    
+    std::memcpy(skyp_h.data(),skyp.dp(),sizeof(std::complex<double>) * oversampg * oversampg);
+    thrust::device_vector<thrust::complex<double>> skyp_d = skyp_h;    
+    thrust::device_vector<thrust::complex<double>> wstacks(w_planes*oversampg*oversampg,{0.0,0.0});
+    std::cout << "done\n";
+
+    
+    // Setup FFT plan for our image/grid using cufft.
+    std::cout << "Planning CUDA FFT's... " << std::flush;
+    cufftHandle plan;
+    cuFFTError_check(cufftPlan2d(&plan,oversampg,oversampg,CUFFT_Z2Z));
+    std::cout << "done\n";
+    
+    // Bin our u/v/w prediction values in terms of w-plane contribution.
+    double w_min = *std::min_element(std::begin(w), std::end(w));
+    struct w_plane_locs <double> *wbins;
+    cudaError_check(cudaMallocManaged((void **)&wbins, sizeof(struct w_plane_locs <double>) * w_planes));
+
+
+    
+    thrust::device_vector<thrust::complex<double> > visibilities_d(u.size(),{0.0,0.0});
+    thrust::host_vector<thrust::complex<double> > visibilities_h;    
+
+    // FFT Shift our Sky and Fresnel Pattern
+    fft_shift_kernel <thrust::complex<double>>
+    	<<< dimGrid, dimBlock >>>
+    	((thrust::complex<double>*)thrust::raw_pointer_cast(wtransfer_d.data()),
+    	oversampg);
+    fft_shift_kernel <thrust::complex<double>>
+    	<<< dimGrid, dimBlock >>>
+    	((thrust::complex<double>*)thrust::raw_pointer_cast(skyp_d.data()),
+    	 oversampg);
+    
+    fresnel_sky_mul <double>
+    	<<< dimGrid, dimBlock >>>
+    	((thrust::complex<double>*)thrust::raw_pointer_cast(skyp_d.data()),
+    	 (thrust::complex<double>*)thrust::raw_pointer_cast(wtransfer_d.data()),
+    	 oversampg,
+    	 floor(-w_planes/2));
+    
+    for (int wplane = 0; wplane < w_planes; ++wplane){
+
+    	cuFFTError_check(cufftExecZ2Z(plan,
+    				      (cuDoubleComplex*)thrust::raw_pointer_cast(skyp_d.data()),
+    				      (cuDoubleComplex*)thrust::raw_pointer_cast(&wstacks.data()[wplane * oversampg * oversampg]),
+    				      CUFFT_FORWARD));
+	fft_shift_kernel <thrust::complex<double>>
+	    <<< dimGrid, dimBlock >>>
+	    ((thrust::complex<double>*)thrust::raw_pointer_cast(&wstacks.data()[wplane * oversampg * oversampg]),
+	     oversampg);
+	
+    	fresnel_sky_mul <double>
+    	    <<< dimGrid, dimBlock >>>
+    	    ((thrust::complex<double>*)thrust::raw_pointer_cast(skyp_d.data()),
+    	     (thrust::complex<double>*)thrust::raw_pointer_cast(wtransfer_d.data()),
+    	     oversampg,
+    	     1);
+
+	
+    }
+    std::vector<std::complex<double> > vis(1,{0.0,0.0});   
     return vis;
 
 }

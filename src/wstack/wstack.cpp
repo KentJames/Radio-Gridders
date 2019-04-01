@@ -295,18 +295,21 @@ int main(int argc, char **argv) {
 	    // Placeholder for now.
 	    // TODO: Add import from file.
 
-	    vis = wstack_predict_cu(theta,
-				    lambda,
-				    points,
-				    uvwvec,
-				    du, dw,
-				    support_uv,
-				    support_w,
-				    x0,
-				    sepkern_uv,
-				    sepkern_w,
-				    sepkern_lm,
-				    sepkern_w);
+
+	    vis = wstack_predict_cu_3D(theta,
+				       lambda,
+				       points,
+				       uvec,
+				       vvec,
+				       wvec,
+				       du, dw,
+				       support_uv,
+				       support_w,
+				       x0,
+				       sepkern_uv,
+				       sepkern_w,
+				       sepkern_lm,
+				       sepkern_w);
 				    
 				    
 	    
