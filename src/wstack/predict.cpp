@@ -420,11 +420,14 @@ std::vector<std::complex<double>> wstack_predict(double theta,
     vector2D<std::complex<double> > plane(oversampg,oversampg,{0.0,0.0});
     fftw_plan plan;
     std::cout << "Planning fft's... " << std::flush;
+
+    fftw_import_wisdom_from_filename("fftw.wisdom");
     plan = fftw_plan_dft_2d(2*grid_size,2*grid_size,
     			    reinterpret_cast<fftw_complex*>(skyp.dp()),
      			    reinterpret_cast<fftw_complex*>(plane.dp()),
      			    FFTW_FORWARD,
-     			    FFTW_MEASURE);  
+     			    FFTW_MEASURE);
+    fftw_export_wisdom_to_filename("fftw.wisdom");
     std::cout << "done\n" << std::flush;
     skyp.clear();
     plane.clear();
@@ -548,11 +551,13 @@ std::vector<std::vector<std::complex<double>>> wstack_predict_lines(double theta
     vector2D<std::complex<double> > plane(oversampg,oversampg,{0.0,0.0});
     fftw_plan plan;
     std::cout << "Planning fft's... " << std::flush;
+    fftw_import_wisdom_from_filename("fftw_l.wisdom");
     plan = fftw_plan_dft_2d(2*grid_size,2*grid_size,
     			    reinterpret_cast<fftw_complex*>(skyp.dp()),
      			    reinterpret_cast<fftw_complex*>(plane.dp()),
      			    FFTW_FORWARD,
-     			    FFTW_MEASURE);  
+     			    FFTW_MEASURE);
+    fftw_export_wisdom_to_filename("fftw_l.wisdom");
     std::cout << "done\n" << std::flush;
     skyp.clear();
     plane.clear();

@@ -318,11 +318,7 @@ int main(int argc, char **argv) {
 	} else {
 #endif	    
 	    
-	    std::cout << "##### W Stacking #####\n"; 
-
-
-
-	    
+	    std::cout << "##### W Stacking #####\n"; 	    
 	    visq = predict_visibility_quantized_vec(points,theta,lambda,uvwvec);
 	    vis = wstack_predict(theta,
 				 lambda,
