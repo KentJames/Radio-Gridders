@@ -82,7 +82,7 @@ int main(int argc, char **argv){
 
     double theta;
     double lambda;
-    int npts = 300000;
+    int npts = 4000000;
 
     if (checkCmdLineFlag(argc, (const char **) argv, "theta") == 0 ||
 	checkCmdLineFlag(argc, (const char **) argv, "lambda") == 0) {
@@ -158,6 +158,9 @@ int main(int argc, char **argv){
 
 
     double agg_error = std::accumulate(error.begin(), error.end(), 0.0);
+    std::cout << "Example error is: " << viswstack[186573] << " " << vis_dft[186573] << "\n";
+
+
     
     std::cout << "Aggregate Error: " << agg_error/error.size() << "\n\n";
  
