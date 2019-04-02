@@ -7,6 +7,7 @@
 #include <ctime>
 #include <vector>
 #include <cmath>
+#include <chrono>
 #include <random>
 #include <algorithm>
 #include <fftw3.h>
@@ -460,7 +461,7 @@ std::vector<std::complex<double>> wstack_predict(double theta,
     }
 
     std::vector<std::complex<double> > visibilities(uvwvec.size(),{0.0,0.0});
-
+    std::chrono::high_resolution_clock::time_point t1 = std::chrono::high_resolution_clock::now();
     #pragma omp parallel
     #pragma omp for
     for (std::size_t i = 0; i < uvwvec.size(); ++i){
@@ -476,10 +477,12 @@ std::vector<std::complex<double>> wstack_predict(double theta,
     						 grid_conv_uv,
     						 grid_conv_w);
 
-
+	
     }
-
-
+    std::chrono::high_resolution_clock::time_point t2 = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>( t2 - t1 ).count();
+    
+    std::cout << "Deconvolve Time: " << duration << "us \n";;
     
     //Unfortunately LLVM and GCC are woefully behind Microsoft when it comes to parallel algorithm support in the STL!!
 
@@ -593,7 +596,8 @@ std::vector<std::vector<std::complex<double>>> wstack_predict_lines(double theta
     std::cout << " UVW Vec Size: " << uvwvec.size() << "\n";
     std::vector<std::vector<std::complex<double> > > visibilities(uvwvec.size());
 
-    // To make threads play nice, pre-initialise  
+    // To make threads play nice, pre-initialise
+    std::chrono::high_resolution_clock::time_point t1 = std::chrono::high_resolution_clock::now();
     #pragma omp parallel
     #pragma omp for
     for (std::size_t line = 0; line < uvwvec.size(); ++ line){
@@ -612,9 +616,14 @@ std::vector<std::vector<std::complex<double>>> wstack_predict_lines(double theta
 							  grid_conv_w);
 
 
-    }
+	}
     
     }
+    std::chrono::high_resolution_clock::time_point t2 = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>( t2 - t1 ).count();
+    
+    std::cout << "Deconvolve Time: " << duration << "us \n";;
+   
     /*
     Unfortunately LLVM and GCC are woefully behind Microsoft when it comes to parallel algorithm support in the STL!!
 
