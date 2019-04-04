@@ -3,6 +3,7 @@
 #include <random>
 #include <algorithm>
 #include <ctime>
+#include <chrono>
 
 #include "wstack_common.h"
 #include "helper_string.h"
@@ -74,6 +75,31 @@ std::vector<std::vector<double>> generate_random_visibilities(double theta,
     return vis;
 }
 
+std::vector<std::vector<double>> generate_line_visibilities(double theta,
+							    double lambda,
+							    double v,
+							    double dw,
+							      int npts){
+
+    
+    std::vector<std::vector<double>> vis(npts, std::vector<double>(3,0.0));
+    auto seed = std::chrono::system_clock::now().time_since_epoch().count();
+    std::default_random_engine generator;
+    generator.seed(seed);
+    std::uniform_real_distribution<double> distribution(-theta*lambda/2,theta*lambda/2);
+    std::uniform_real_distribution<double> distribution_w(-dw,dw);
+
+
+    double npts_step = (theta*lambda)/npts;
+    for(int i = 0; i < npts; ++i){	
+	vis[i][0] = npts_step*i - theta*lambda/2;
+	vis[i][1] = v;
+	vis[i][2] = 0;
+    }
+
+    return vis;
+}
+
 
 
 
@@ -82,7 +108,7 @@ int main(int argc, char **argv){
 
     double theta;
     double lambda;
-    int npts = 4000000;
+    int npts = 40000000;
 
     if (checkCmdLineFlag(argc, (const char **) argv, "theta") == 0 ||
 	checkCmdLineFlag(argc, (const char **) argv, "lambda") == 0) {
@@ -167,12 +193,22 @@ int main(int argc, char **argv){
 
     std::cout << " Testing using Lines of Visibilities: \n\n";
 
-    std::vector<std::vector<std::vector<double>>> uvw_lines (4);
-    uvw_lines[0] = generate_random_visibilities(theta,lambda,dw,10000);
-    uvw_lines[1] = generate_random_visibilities(theta,lambda,dw,10000);
-    uvw_lines[2] = generate_random_visibilities(theta,lambda,dw,10000);
-    uvw_lines[3] = generate_random_visibilities(theta,lambda,dw,10000);
+    std::vector<std::vector<std::vector<double>>> uvw_lines (12);
+    uvw_lines[0] = generate_line_visibilities(theta,lambda,5.0,dw,3500000);
+    uvw_lines[1] = generate_line_visibilities(theta,lambda,-10.0,dw,3500000);
+    uvw_lines[2] = generate_line_visibilities(theta,lambda,15.0,dw,3500000);
+    uvw_lines[3] = generate_line_visibilities(theta,lambda,24.5,dw,3500000);
+    uvw_lines[4] = generate_line_visibilities(theta,lambda,-178.0,dw,3500000);
+    uvw_lines[5] = generate_line_visibilities(theta,lambda,657.0,dw,3500000);
+    uvw_lines[6] = generate_line_visibilities(theta,lambda,-67.0,dw,3500000);
+    uvw_lines[7] = generate_line_visibilities(theta,lambda,-87.0,dw,3500000);
+    uvw_lines[8] = generate_line_visibilities(theta,lambda,65.0,dw,3500000);
+    uvw_lines[9] = generate_line_visibilities(theta,lambda,123.0,dw,3500000);
+    uvw_lines[10] = generate_line_visibilities(theta,lambda,98.0,dw,3500000);
+    uvw_lines[11] = generate_line_visibilities(theta,lambda,0.0,dw,3500000);
 
+
+    
     std::vector<std::vector<std::complex<double>>> vis_lines = run_test_predict_lines(testcard_points, theta, lambda,
 									      uvw_lines, du, dw,
 									      support_uv, support_w,

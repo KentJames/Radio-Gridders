@@ -1,9 +1,8 @@
-NVCC = nvcc
-CXX = clang++
-CC = clang
+include ../user.mk
+
 
 override CXXFLAGS +=-std=c++14 -I../src/common
-override LDFLAGS += -lhdf5 -lm -L../src/common -lomp -lhdf5_r -lfftw3
+override LDFLAGS += -L../src/common -lhdf5_r -L../src/wstack -lpredict -lhdf5 -lm -lomp -lfftw3_threads -lfftw3
 
 all: test_wstack.out
 

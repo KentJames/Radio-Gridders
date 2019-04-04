@@ -11,6 +11,7 @@
 #include <random>
 #include <algorithm>
 #include <fftw3.h>
+#include <omp.h>
 
 #include "wstack_common.h"
 /*
@@ -422,6 +423,10 @@ std::vector<std::complex<double>> wstack_predict(double theta,
     fftw_plan plan;
     std::cout << "Planning fft's... " << std::flush;
 
+    fftw_init_threads();
+    fftw_plan_with_nthreads(omp_get_max_threads());
+
+    
     fftw_import_wisdom_from_filename("fftw.wisdom");
     plan = fftw_plan_dft_2d(2*grid_size,2*grid_size,
     			    reinterpret_cast<fftw_complex*>(skyp.dp()),
@@ -441,7 +446,8 @@ std::vector<std::complex<double>> wstack_predict(double theta,
 
     std::cout << "W-Stacker: \n";
     std::cout << std::setprecision(15);
-    
+
+    std::chrono::high_resolution_clock::time_point t1_ws = std::chrono::high_resolution_clock::now();
     for(int i = 0; i < w_planes; ++i){
 
 	std::cout << "Processing Plane: " << i << "\n";
@@ -459,11 +465,16 @@ std::vector<std::complex<double>> wstack_predict(double theta,
 	//std::cout << predict_visibility_quantized(points,theta,lam,0.0,0.0,(i-std::floor(w_planes/2))*dw) << "\n";
 	plane.clear();	
     }
+    std::chrono::high_resolution_clock::time_point t2_ws = std::chrono::high_resolution_clock::now();
+    auto duration_ws = std::chrono::duration_cast<std::chrono::milliseconds>( t2_ws - t1_ws ).count();
+    
+    std::cout << "W-Stack Time: " << duration_ws << "ms \n";;
+   
 
     std::vector<std::complex<double> > visibilities(uvwvec.size(),{0.0,0.0});
     std::chrono::high_resolution_clock::time_point t1 = std::chrono::high_resolution_clock::now();
     #pragma omp parallel
-    #pragma omp for
+    #pragma omp for schedule(dynamic)
     for (std::size_t i = 0; i < uvwvec.size(); ++i){
 
     	visibilities[i] = deconvolve_visibility(uvwvec[i],
@@ -482,7 +493,7 @@ std::vector<std::complex<double>> wstack_predict(double theta,
     std::chrono::high_resolution_clock::time_point t2 = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>( t2 - t1 ).count();
     
-    std::cout << "Deconvolve Time: " << duration << "us \n";;
+    std::cout << "Deconvolve Time: " << duration << "ms \n";;
     
     //Unfortunately LLVM and GCC are woefully behind Microsoft when it comes to parallel algorithm support in the STL!!
 
@@ -555,6 +566,8 @@ std::vector<std::vector<std::complex<double>>> wstack_predict_lines(double theta
     vector2D<std::complex<double> > plane(oversampg,oversampg,{0.0,0.0});
     fftw_plan plan;
     std::cout << "Planning fft's... " << std::flush;
+    fftw_init_threads();
+    fftw_plan_with_nthreads(omp_get_max_threads());
     fftw_import_wisdom_from_filename("fftw_l.wisdom");
     plan = fftw_plan_dft_2d(2*grid_size,2*grid_size,
     			    reinterpret_cast<fftw_complex*>(skyp.dp()),
@@ -574,7 +587,8 @@ std::vector<std::vector<std::complex<double>>> wstack_predict_lines(double theta
 
     std::cout << "W-Stacker: \n";
     std::cout << std::setprecision(15);
-    
+
+    std::chrono::high_resolution_clock::time_point t1_ws = std::chrono::high_resolution_clock::now();
     for(int i = 0; i < w_planes; ++i){
 
 	std::cout << "Processing Plane: " << i << "\n";
@@ -592,14 +606,20 @@ std::vector<std::vector<std::complex<double>>> wstack_predict_lines(double theta
 	//std::cout << predict_visibility_quantized(points,theta,lam,0.0,0.0,(i-std::floor(w_planes/2))*dw) << "\n";
 	plane.clear();	
     }
+    std::chrono::high_resolution_clock::time_point t2_ws = std::chrono::high_resolution_clock::now();
+    auto duration_ws = std::chrono::duration_cast<std::chrono::milliseconds>( t2_ws - t1_ws ).count();
+    
+    std::cout << "W-Stack Time: " << duration_ws << "ms \n";;
+   
 
+    
     std::cout << " UVW Vec Size: " << uvwvec.size() << "\n";
     std::vector<std::vector<std::complex<double> > > visibilities(uvwvec.size());
 
     // To make threads play nice, pre-initialise
     std::chrono::high_resolution_clock::time_point t1 = std::chrono::high_resolution_clock::now();
     #pragma omp parallel
-    #pragma omp for
+    #pragma omp for schedule(dynamic)
     for (std::size_t line = 0; line < uvwvec.size(); ++ line){
 	visibilities[line].resize(uvwvec[line].size(),0.0);
 	for (std::size_t i = 0; i < uvwvec[line].size(); ++i){
@@ -622,7 +642,7 @@ std::vector<std::vector<std::complex<double>>> wstack_predict_lines(double theta
     std::chrono::high_resolution_clock::time_point t2 = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>( t2 - t1 ).count();
     
-    std::cout << "Deconvolve Time: " << duration << "us \n";;
+    std::cout << "Deconvolve Time: " << duration << "ms \n";;
    
     /*
     Unfortunately LLVM and GCC are woefully behind Microsoft when it comes to parallel algorithm support in the STL!!

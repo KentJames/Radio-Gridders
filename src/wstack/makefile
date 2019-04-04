@@ -7,9 +7,9 @@ override CXXFLAGS +=-DCUDA_ACCELERATION -std=c++14 -I../common -I/usr/local/cuda
 endif
 
 ifndef CUDA
-override LDFLAGS +=  -lm  -L../common -lomp -lhdf5_r -lfftw3 -lhdf5 
+override LDFLAGS +=  -lm  -L../common -lomp -lhdf5_r -lfftw3_threads -lfftw3 -lhdf5 
 else
-override LDFLAGS +=  -lm  -L../common -lomp -lhdf5_cu -lfftw3 -lhdf5 -L/usr/local/cuda/lib -lcuda -lcudart -lcufft
+override LDFLAGS += -L../common -lomp -lhdf5_cu -lfftw3_threads -lfftw3 -lm -lhdf5 -L/usr/local/cuda/lib -lcuda -lcudart -lcufft
 endif
 
 override CUDA_FLAGS +=-std=c++14 -I../common
