@@ -320,11 +320,13 @@ void fft_shift_2Darray(vector2D<std::complex<double>>& array){
     }
 }
 
-std::complex<double> deconvolve_visibility(std::vector<double> uvw,
+inline std::complex<double> deconvolve_visibility(std::vector<double> uvw,
 					   double du,
 					   double dw,
 					   int aa_support_uv,
 					   int aa_support_w,
+					   int oversampling,
+					   int oversampling_w,
 					   int w_planes,
 					   int grid_size,
 					   const vector3D<std::complex<double> >& wstacks,
@@ -337,8 +339,6 @@ std::complex<double> deconvolve_visibility(std::vector<double> uvw,
     
     // Begin De-convolution process using Sze-Tan Kernels.
     std::complex<double> vis_sze = {0.0,0.0};
-    int oversampling = grid_conv_uv->oversampling;
-    int oversampling_w = grid_conv_w->oversampling;
 
     // U/V/W oversample values
     double flu = u - std::ceil(u/du)*du;
@@ -354,26 +354,24 @@ std::complex<double> deconvolve_visibility(std::vector<double> uvw,
     for(int dui = -aa_h; dui < aa_h; ++dui){
 
 	int dus = static_cast<int>(std::ceil(u/du) + grid_size + dui); 
-	int aas_u = (dui+aa_h) * oversampling + ovu;
+	//int aas_u = (dui+aa_h) * oversampling + ovu;
+	int aas_u = aa_support_uv * ovu + (dui+aa_h);
+	double gridconv_u = grid_conv_uv->data[aas_u];
 	
 	for(int dvi = -aa_h; dvi < aa_h; ++dvi){
 
 	    int dvs = static_cast<int>(std::ceil(v/du) + grid_size + dvi);
-	    int aas_v = (dvi+aa_h) * oversampling + ovv;
+	    //int aas_v = (dvi+aa_h) * oversampling + ovv;
+	    int aas_v = aa_support_uv * ovv + (dvi+aa_h);
+	    double gridconv_uv = gridconv_u * grid_conv_uv->data[aas_v];
 	    
 	    for(int dwi = -aaw_h; dwi < aaw_h; ++dwi){
 
 		int dws = static_cast<int>(std::ceil(w/dw) + std::floor(w_planes/2) + dwi);
-		int aas_w = (dwi+aaw_h) * oversampling_w + ovw;	
-		
-		double grid_convolution = 1.0 * 
-		    grid_conv_uv->data[aas_u] *
-		    grid_conv_uv->data[aas_v] *
-		    grid_conv_w->data[aas_w];
-		
-		//std::cout << "Grid Convolution: " << grid_convolution << "\n";
-		
-		vis_sze += (wstacks(dus,dvs,dws) * grid_convolution);
+		//int aas_w = (dwi+aaw_h) * oversampling_w + ovw;
+		int aas_w = aa_support_w * ovw + (dwi+aaw_h);
+		double gridconv_uvw = gridconv_uv * grid_conv_w->data[aas_w];
+		vis_sze += (wstacks(dus,dvs,dws) * gridconv_uvw );
 		
 	    }
 	}
@@ -478,17 +476,17 @@ std::vector<std::complex<double>> wstack_predict(double theta,
     for (std::size_t i = 0; i < uvwvec.size(); ++i){
 
     	visibilities[i] = deconvolve_visibility(uvwvec[i],
-    						 du,
-    						 dw,
-    						 aa_support_uv,
-    						 aa_support_w,
-    						 w_planes,
-    						 grid_size,
-    						 wstacks,
-    						 grid_conv_uv,
-    						 grid_conv_w);
-
-	
+						du,
+						dw,
+						aa_support_uv,
+						aa_support_w,
+						grid_conv_uv->oversampling,
+					        grid_conv_w->oversampling,
+						w_planes,
+						grid_size,
+						wstacks,
+						grid_conv_uv,
+						grid_conv_w);
     }
     std::chrono::high_resolution_clock::time_point t2 = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>( t2 - t1 ).count();
@@ -592,27 +590,18 @@ std::vector<std::vector<std::complex<double>>> wstack_predict_lines(double theta
     for(int i = 0; i < w_planes; ++i){
 
 	std::cout << "Processing Plane: " << i << "\n";
-	
 	fftw_execute(plan);
 	fft_shift_2Darray(plane);
-	
 	//Copy Plane into our stacks
 	std::complex<double> *wp = wstacks.dp() + i*(4*grid_size*grid_size);
 	std::complex<double> *pp = plane.dp();
 	std::memcpy(wp,pp,sizeof(std::complex<double>) * (4*grid_size*grid_size));
-
 	multiply_fresnel_pattern(wtransfer,skyp,1);
-	//std::cout << wstacks(2048,2048,i) << "\n";
-	//std::cout << predict_visibility_quantized(points,theta,lam,0.0,0.0,(i-std::floor(w_planes/2))*dw) << "\n";
 	plane.clear();	
     }
     std::chrono::high_resolution_clock::time_point t2_ws = std::chrono::high_resolution_clock::now();
     auto duration_ws = std::chrono::duration_cast<std::chrono::milliseconds>( t2_ws - t1_ws ).count();
-    
     std::cout << "W-Stack Time: " << duration_ws << "ms \n";;
-   
-
-    
     std::cout << " UVW Vec Size: " << uvwvec.size() << "\n";
     std::vector<std::vector<std::complex<double> > > visibilities(uvwvec.size());
 
@@ -629,15 +618,14 @@ std::vector<std::vector<std::complex<double>>> wstack_predict_lines(double theta
 							  dw,
 							  aa_support_uv,
 							  aa_support_w,
+							  grid_conv_uv->oversampling,
+							  grid_conv_w->oversampling,
 							  w_planes,
 							  grid_size,
 							  wstacks,
 							  grid_conv_uv,
 							  grid_conv_w);
-
-
 	}
-    
     }
     std::chrono::high_resolution_clock::time_point t2 = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>( t2 - t1 ).count();
@@ -645,7 +633,7 @@ std::vector<std::vector<std::complex<double>>> wstack_predict_lines(double theta
     std::cout << "Deconvolve Time: " << duration << "ms \n";;
    
     /*
-    Unfortunately LLVM and GCC are woefully behind Microsoft when it comes to parallel algorithm support in the STL!!
+    //Unfortunately LLVM and GCC are woefully behind Microsoft when it comes to parallel algorithm support in the STL!!
 
     std::transform(std::execution:par, uvwvec.begin(), uvwvec.end(), visibilities.begin(),
 		   [du,

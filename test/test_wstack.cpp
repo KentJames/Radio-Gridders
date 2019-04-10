@@ -137,9 +137,9 @@ int main(int argc, char **argv){
     struct sep_kernel_data *sepkern_n = (struct sep_kernel_data*)malloc(sizeof(struct sep_kernel_data));
     
     std::cout << "Loading Kernel...";
-    load_sep_kern("./kernels/sze/sepkern_uv.hdf5",sepkern_uv);
+    load_sep_kern_T("./kernels/sze/sepkern_uv_transpose.hdf5",sepkern_uv);
     std::cout << "Loading W Kernel...";
-    load_sep_kern("./kernels/sze/sepkern_w.hdf5",sepkern_w);
+    load_sep_kern_T("./kernels/sze/sepkern_w_transpose.hdf5",sepkern_w);
 
     std::cout << "Loading AA Kernel...";
     load_sep_kern("./kernels/sze/sepkern_lm.hdf5", sepkern_lm);
@@ -194,18 +194,18 @@ int main(int argc, char **argv){
     std::cout << " Testing using Lines of Visibilities: \n\n";
 
     std::vector<std::vector<std::vector<double>>> uvw_lines (12);
-    uvw_lines[0] = generate_line_visibilities(theta,lambda,5.0,dw,3500000);
-    uvw_lines[1] = generate_line_visibilities(theta,lambda,-10.0,dw,3500000);
-    uvw_lines[2] = generate_line_visibilities(theta,lambda,15.0,dw,3500000);
-    uvw_lines[3] = generate_line_visibilities(theta,lambda,24.5,dw,3500000);
-    uvw_lines[4] = generate_line_visibilities(theta,lambda,-178.0,dw,3500000);
-    uvw_lines[5] = generate_line_visibilities(theta,lambda,657.0,dw,3500000);
-    uvw_lines[6] = generate_line_visibilities(theta,lambda,-67.0,dw,3500000);
-    uvw_lines[7] = generate_line_visibilities(theta,lambda,-87.0,dw,3500000);
-    uvw_lines[8] = generate_line_visibilities(theta,lambda,65.0,dw,3500000);
-    uvw_lines[9] = generate_line_visibilities(theta,lambda,123.0,dw,3500000);
-    uvw_lines[10] = generate_line_visibilities(theta,lambda,98.0,dw,3500000);
-    uvw_lines[11] = generate_line_visibilities(theta,lambda,0.0,dw,3500000);
+    uvw_lines[0] = generate_line_visibilities(theta,lambda,5.0,dw,10000000);
+    uvw_lines[1] = generate_line_visibilities(theta,lambda,-10.0,dw,10000000);
+    uvw_lines[2] = generate_line_visibilities(theta,lambda,15.0,dw,10000000);
+    uvw_lines[3] = generate_line_visibilities(theta,lambda,24.5,dw,10000000);
+    uvw_lines[4] = generate_line_visibilities(theta,lambda,-178.0,dw,10000000);
+    uvw_lines[5] = generate_line_visibilities(theta,lambda,657.0,dw,10000000);
+    uvw_lines[6] = generate_line_visibilities(theta,lambda,-67.0,dw,10000000);
+    uvw_lines[7] = generate_line_visibilities(theta,lambda,-87.0,dw,10000000);
+    uvw_lines[8] = generate_line_visibilities(theta,lambda,65.0,dw,10000000);
+    uvw_lines[9] = generate_line_visibilities(theta,lambda,123.0,dw,10000000);
+    uvw_lines[10] = generate_line_visibilities(theta,lambda,98.0,dw,10000000);
+    uvw_lines[11] = generate_line_visibilities(theta,lambda,0.0,dw,10000000);
 
 
     

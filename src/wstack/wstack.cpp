@@ -224,9 +224,9 @@ int main(int argc, char **argv) {
     } else {
 #endif
 	std::cout << "Loading Kernel...";
-	load_sep_kern(sepkern_uv_file,sepkern_uv);
+	load_sep_kern_T(sepkern_uv_file,sepkern_uv);
 	std::cout << "Loading W Kernel...";
-	load_sep_kern(sepkern_w_file,sepkern_w);
+	load_sep_kern_T(sepkern_w_file,sepkern_w);
 	
 	std::cout << "Loading AA Kernel...";
 	load_sep_kern(sepkern_lm_file, sepkern_lm);
