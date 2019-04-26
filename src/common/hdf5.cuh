@@ -152,6 +152,7 @@ extern "C" {
 
 
   int load_sep_kern(const char *filename, struct sep_kernel_data *sepkern);
+  int load_sep_kern_T(const char *filename, struct sep_kernel_data *sepkern);
     
 
 #ifdef VAR_W_KERN
