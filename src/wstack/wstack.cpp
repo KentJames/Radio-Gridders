@@ -262,17 +262,17 @@ int main(int argc, char **argv) {
 	std::vector<double> uvec(300000,14.6);
 	std::vector<double> vvec(300000,-4.5);
 	std::vector<double> wvec(300000,0.0);
-	std::vector<std::vector<double> > uvwvec(300000,{0.0,0.0,0.0});
+	std::vector<double> uvwvec(3*300000,0.0);
 
 	
 	for (std::size_t i = 0; i < uvec.size(); ++i){
-	    uvwvec[i][0] = uvec[i];
-	    uvwvec[i][1] = vvec[i];
-	    uvwvec[i][2] = wvec[i];
+	    uvwvec[3*i + 0] = uvec[i];
+	    uvwvec[3*i + 1] = vvec[i];
+	    uvwvec[3*i + 2] = wvec[i];
 	    
 	}
 
-	std::vector<std::vector<double> > uvwvec_cli(1,std::vector<double>(3,0.0));
+	std::vector<double> uvwvec_cli(3,0.0);
 	
 	if (checkCmdLineFlag(argc, (const char **) argv, "pu") == 0 ||
 	    checkCmdLineFlag(argc, (const char **) argv, "pv") == 0 ||
@@ -282,9 +282,9 @@ int main(int argc, char **argv) {
 	    return 0;
 	}
 	else {
-	    uvwvec_cli[0][0] =  getCmdLineArgumentDouble(argc, (const char **) argv, "pu");
-	    uvwvec_cli[0][1] =  getCmdLineArgumentDouble(argc, (const char **) argv, "pv");
-	    uvwvec_cli[0][2] =  getCmdLineArgumentDouble(argc, (const char **) argv, "pw");
+	    uvwvec_cli[0] =  getCmdLineArgumentDouble(argc, (const char **) argv, "pu");
+	    uvwvec_cli[1] =  getCmdLineArgumentDouble(argc, (const char **) argv, "pv");
+	    uvwvec_cli[2] =  getCmdLineArgumentDouble(argc, (const char **) argv, "pw");
 	}
 
 	
@@ -337,16 +337,17 @@ int main(int argc, char **argv) {
 	}
 #endif
 
-	if(npts < 10){
-	    std::for_each(visq.begin(), visq.end(), [](const std::complex<double>& n) { std::cout << n << " ";});
-	    std::cout << "\n";
-	    std::for_each(vis.begin(), vis.end(), [](const std::complex<double>& n) { std::cout << n << " ";});
-	    std::cout << "\n";
-	}
+	// if(npts < 10){
+	//     std::for_each(visq.begin(), visq.end(), [](const std::complex<double>& n) { std::cout << n << " ";});
+	//     std::cout << "\n";
+	//     std::for_each(vis.begin(), vis.end(), [](const std::complex<double>& n) { std::cout << n << " ";});
+	//     std::cout << "\n";
+	// }
 	
 	std::vector<double> error (visq.size(), 0.0);
-	std::transform(visq.begin(),visq.end(),vis.begin(),error.begin(), [npts](std::complex<double> dft,
-										 std::complex<double> wstack)
+	std::transform(vis.begin(),vis.end(),visq.begin(),error.begin(),
+		       [npts](std::complex<double> wstack,
+			      std::complex<double> dft)
 		       -> double { return std::abs(dft-wstack)/npts;});
 
 	//std::for_each(error.begin(), error.end(), [](const double n) { std::cout << n << " ";});

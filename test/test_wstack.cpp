@@ -12,7 +12,7 @@
 std::vector<std::complex<double>> run_test_predict(const std::vector<double>& points,
 						   double theta,
 						   double lambda,
-						   std::vector<std::vector<double>> uvw,
+						   std::vector<double> uvw,
 						   double du,
 						   double dw,
 						   int support_uv,
@@ -33,7 +33,7 @@ std::vector<std::complex<double>> run_test_predict(const std::vector<double>& po
 std::vector<std::vector<std::complex<double>>> run_test_predict_lines(const std::vector<double>& points,
 								double theta,
 								double lambda,
-								std::vector<std::vector<std::vector<double>>> uvw,
+								std::vector<std::vector<double>> uvw,
 								double du,
 								double dw,
 								int support_uv,
@@ -50,56 +50,6 @@ std::vector<std::vector<std::complex<double>>> run_test_predict_lines(const std:
     
 
 }
-
-
-
-std::vector<std::vector<double>> generate_random_visibilities(double theta,
-							      double lambda,
-							      double dw,
-							      int npts){
-
-    
-    std::vector<std::vector<double>> vis(npts, std::vector<double>(3,0.0));
-    auto seed = std::chrono::system_clock::now().time_since_epoch().count();
-    std::default_random_engine generator;
-    generator.seed(seed);
-    std::uniform_real_distribution<double> distribution(-theta*lambda/2,theta*lambda/2);
-    std::uniform_real_distribution<double> distribution_w(-dw,dw);
-   
-    for(int i = 0; i < npts; ++i){	
-	vis[i][0] = distribution(generator);
-	vis[i][1] = distribution(generator);
-	vis[i][2] = distribution_w(generator);
-    }
-
-    return vis;
-}
-
-std::vector<std::vector<double>> generate_line_visibilities(double theta,
-							    double lambda,
-							    double v,
-							    double dw,
-							      int npts){
-
-    
-    std::vector<std::vector<double>> vis(npts, std::vector<double>(3,0.0));
-    auto seed = std::chrono::system_clock::now().time_since_epoch().count();
-    std::default_random_engine generator;
-    generator.seed(seed);
-    std::uniform_real_distribution<double> distribution(-theta*lambda/2,theta*lambda/2);
-    std::uniform_real_distribution<double> distribution_w(-dw,dw);
-
-
-    double npts_step = (theta*lambda)/npts;
-    for(int i = 0; i < npts; ++i){	
-	vis[i][0] = npts_step*i - theta*lambda/2;
-	vis[i][1] = v;
-	vis[i][2] = 0;
-    }
-
-    return vis;
-}
-
 
 
 
@@ -155,7 +105,7 @@ int main(int argc, char **argv){
     int support_w = sepkern_w->size;
     
     std::cout << " TESTING WITH TEST-CARD: \n";
-    std::vector<std::vector<double> > random_visibilities = generate_random_visibilities(theta,lambda,dw,npts);
+    std::vector<double> random_visibilities = generate_random_visibilities_(theta,lambda,dw,npts);
     std::vector<double> testcard_points = generate_testcard_dataset(theta);
     // std::vector<double> testcard_points = {0.0,0.0};
     
@@ -193,31 +143,28 @@ int main(int argc, char **argv){
 
     std::cout << " Testing using Lines of Visibilities: \n\n";
 
-    std::vector<std::vector<std::vector<double>>> uvw_lines (12);
-    uvw_lines[0] = generate_line_visibilities(theta,lambda,5.0,dw,10000000);
-    uvw_lines[1] = generate_line_visibilities(theta,lambda,-10.0,dw,10000000);
-    uvw_lines[2] = generate_line_visibilities(theta,lambda,15.0,dw,10000000);
-    uvw_lines[3] = generate_line_visibilities(theta,lambda,24.5,dw,10000000);
-    uvw_lines[4] = generate_line_visibilities(theta,lambda,-178.0,dw,10000000);
-    uvw_lines[5] = generate_line_visibilities(theta,lambda,657.0,dw,10000000);
-    uvw_lines[6] = generate_line_visibilities(theta,lambda,-67.0,dw,10000000);
-    uvw_lines[7] = generate_line_visibilities(theta,lambda,-87.0,dw,10000000);
-    uvw_lines[8] = generate_line_visibilities(theta,lambda,65.0,dw,10000000);
-    uvw_lines[9] = generate_line_visibilities(theta,lambda,123.0,dw,10000000);
-    uvw_lines[10] = generate_line_visibilities(theta,lambda,98.0,dw,10000000);
-    uvw_lines[11] = generate_line_visibilities(theta,lambda,0.0,dw,10000000);
-
-
+    std::vector<std::vector<double>> uvw_lines (12);
+    uvw_lines[0] = generate_line_visibilities_(theta,lambda,5.0,dw,10000000);
+    uvw_lines[1] = generate_line_visibilities_(theta,lambda,-10.0,dw,10000000);
+    uvw_lines[2] = generate_line_visibilities_(theta,lambda,15.0,dw,10000000);
+    uvw_lines[3] = generate_line_visibilities_(theta,lambda,24.5,dw,10000000);
+    uvw_lines[4] = generate_line_visibilities_(theta,lambda,-178.0,dw,10000000);
+    uvw_lines[5] = generate_line_visibilities_(theta,lambda,657.0,dw,10000000);
+    uvw_lines[6] = generate_line_visibilities_(theta,lambda,-67.0,dw,10000000);
+    uvw_lines[7] = generate_line_visibilities_(theta,lambda,-87.0,dw,10000000);
+    uvw_lines[8] = generate_line_visibilities_(theta,lambda,65.0,dw,10000000);
+    uvw_lines[9] = generate_line_visibilities_(theta,lambda,123.0,dw,10000000);
+    uvw_lines[10] = generate_line_visibilities_(theta,lambda,98.0,dw,10000000);
+    uvw_lines[11] = generate_line_visibilities_(theta,lambda,0.0,dw,10000000);
     
     std::vector<std::vector<std::complex<double>>> vis_lines = run_test_predict_lines(testcard_points, theta, lambda,
-									      uvw_lines, du, dw,
-									      support_uv, support_w,
-									      x0,
-									      sepkern_uv,
-									      sepkern_w,
-									      sepkern_lm,
-									      sepkern_n);
-
+    									      uvw_lines, du, dw,
+    									      support_uv, support_w,
+    									      x0,
+    									      sepkern_uv,
+    									      sepkern_w,
+    									      sepkern_lm,
+    									      sepkern_n);
 
     agg_error = 0.0;
     std::size_t line_size = 0;
@@ -241,7 +188,7 @@ int main(int argc, char **argv){
     std::cout << "\nOdd corner cases: \n";
 
     std::vector<double> cornercase = {0,1.0/lambda};
-    std::vector<std::vector<double> > locations (1,std::vector<double>(3,0.0));
+    std::vector<double> locations (3,0.0);
     
     viswstack = run_test_predict(cornercase, theta, lambda,
     				 locations,
@@ -269,9 +216,9 @@ int main(int argc, char **argv){
     
     std::cout << "Aggregate Error: " << agg_error/error.size() << "\n";
 
-    locations[0][0] = 50.0;
-    locations[0][1] = 130.0;
-    locations[0][2] = dw-0.00002;
+    locations[0] = 50.0;
+    locations[1] = 130.0;
+    locations[2] = dw-0.00002;
 
     
     viswstack = run_test_predict(cornercase, theta, lambda,
@@ -285,9 +232,9 @@ int main(int argc, char **argv){
     				 sepkern_n
     				 );
     vis_dft = predict_visibility_quantized_vec(cornercase,
-					       theta,
-					       lambda,
-					       locations);
+    					       theta,
+    					       lambda,
+    					       locations);
 
     std::vector<double> error_cc2(viswstack.size(),0.0); 
     std::transform(viswstack.begin(), viswstack.end(), vis_dft.begin(), error_cc2.begin(),

@@ -82,7 +82,7 @@ std::complex<double> predict_visibility_quantized(const std::vector<double>& poi
 std::vector<std::complex<double> > predict_visibility_quantized_vec(const std::vector<double>& points,
 								double theta,
 								double lam,
-								std::vector<std::vector<double> > uvw){
+								std::vector<double> uvw){
 
     double grid_size = std::floor(theta * lam);
     
@@ -93,9 +93,9 @@ std::vector<std::complex<double> > predict_visibility_quantized_vec(const std::v
     //#pragma omp parallel
     for (std::size_t visi = 0; visi < uvw.size(); ++visi){
 	
-	double u = uvw[visi][0];
-	double v = uvw[visi][1];
-	double w = uvw[visi][2];
+	double u = uvw[3 * visi + 0];
+	double v = uvw[3 * visi + 1];
+	double w = uvw[3 * visi + 2];
 	for(std::size_t i = 0; i < npts; ++i){
 	    double l = points[2*i];
 	    double m = points[2*i + 1];
@@ -325,7 +325,7 @@ void fft_shift_2Darray(vector2D<std::complex<double>>& array){
 std::vector<std::complex<double>> wstack_predict(double theta,
 						 double lam,
 						 const std::vector<double>& points, // Sky points
-						 std::vector<std::vector<double>> uvwvec, // U/V/W points to predict.
+						 std::vector<double> uvwvec, // U/V/W points to predict.
 						 double du, // Sze-Tan Optimum Spacing in U/V
 						 double dw, // Sze-Tan Optimum Spacing in W
 						 int aa_support_uv,
@@ -410,13 +410,15 @@ std::vector<std::complex<double>> wstack_predict(double theta,
     std::cout << "W-Stack Time: " << duration_ws << "ms \n";;
    
 
-    std::vector<std::complex<double> > visibilities(uvwvec.size(),{0.0,0.0});
+    std::vector<std::complex<double> > visibilities(uvwvec.size()/3,{0.0,0.0});
     std::chrono::high_resolution_clock::time_point t1 = std::chrono::high_resolution_clock::now();
-    #pragma omp parallel
-    #pragma omp for schedule(dynamic)
-    for (std::size_t i = 0; i < uvwvec.size(); ++i){
+#pragma omp parallel
+#pragma omp for schedule(static,1000)
+    for (std::size_t i = 0; i < uvwvec.size()/3; ++i){
 
-    	visibilities[i] = deconvolve_visibility(uvwvec[i],
+    	visibilities[i] = deconvolve_visibility_(uvwvec[3*i + 0],
+						uvwvec[3*i + 1],
+						uvwvec[3*i + 2],
 						du,
 						dw,
 						aa_support_uv,
@@ -469,7 +471,7 @@ std::vector<std::complex<double>> wstack_predict(double theta,
 std::vector<std::vector<std::complex<double>>> wstack_predict_lines(double theta,
 						       double lam,
 						       const std::vector<double>& points, // Sky points
-						       std::vector<std::vector<std::vector<double>>> uvwvec, // U/V/W points to predict.
+						       std::vector<std::vector<double>> uvwvec, // U/V/W points to predict.
 						       double du, // Sze-Tan Optimum Spacing in U/V
 						       double dw, // Sze-Tan Optimum Spacing in W
 						       int aa_support_uv,
@@ -497,8 +499,7 @@ std::vector<std::vector<std::complex<double>>> wstack_predict_lines(double theta
 
     std::cout << "Max W: " << max_w << "\n";
     std::cout << "W Planes: " << w_planes << "\n";
-    
-    
+       
     // We double our grid size to get the optimal spacing.
     vector3D<std::complex<double> > wstacks(oversampg,oversampg,w_planes,{0.0,0.0});
     vector2D<std::complex<double> > skyp(oversampg,oversampg,{0.0,0.0});
@@ -551,10 +552,12 @@ std::vector<std::vector<std::complex<double>>> wstack_predict_lines(double theta
     #pragma omp parallel
     #pragma omp for schedule(dynamic)
     for (std::size_t line = 0; line < uvwvec.size(); ++ line){
-	visibilities[line].resize(uvwvec[line].size(),0.0);
-	for (std::size_t i = 0; i < uvwvec[line].size(); ++i){
+	visibilities[line].resize(uvwvec[line].size()/3,0.0);
+	for (std::size_t i = 0; i < uvwvec[line].size()/3; ++i){
 
-	    visibilities[line][i] = deconvolve_visibility(uvwvec[line][i],
+	    visibilities[line][i] = deconvolve_visibility_(uvwvec[line][3*i + 0],
+							  uvwvec[line][3*i + 1],
+							  uvwvec[line][3*i + 2],
 							  du,
 							  dw,
 							  aa_support_uv,
