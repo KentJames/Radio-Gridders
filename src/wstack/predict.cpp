@@ -468,6 +468,10 @@ std::vector<std::complex<double>> wstack_predict(double theta,
     std::cout << "W-Stacker: \n";
     std::cout << std::setprecision(15);
 
+    long flops_per_vis = 6 * aa_support_uv * aa_support_uv * aa_support_w; // 3D Deconvolve
+    flops_per_vis += 3 * aa_support_uv * aa_support_uv * aa_support_w; // Compute seperable kernel
+    long total_flops = flops_per_vis * uvwvec.size()/3;
+
     std::chrono::high_resolution_clock::time_point t1_ws = std::chrono::high_resolution_clock::now();
     for(int i = 0; i < w_planes; ++i){
 
@@ -511,8 +515,10 @@ std::vector<std::complex<double>> wstack_predict(double theta,
     }
     std::chrono::high_resolution_clock::time_point t2 = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>( t2 - t1 ).count();
-    
-    std::cout << "Deconvolve Time: " << duration << "ms \n";;
+    float duration_s = static_cast<float>(duration)/1000;
+    float gflops = static_cast<float>(total_flops) / duration_s;
+    std::cout << "Deconvolve Time: " << duration << "ms \n";
+    std::cout << "GFLOP/s: " << gflops << "\n";
     
     //Unfortunately LLVM and GCC are woefully behind Microsoft when it comes to parallel algorithm support in the STL!!
 
