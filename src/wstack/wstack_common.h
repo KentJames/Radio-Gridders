@@ -12,15 +12,30 @@
 #include <algorithm>
 #include <random>
 
-template<class T>
+template <class T>
 constexpr T PI = T(3.1415926535897932385L);
+/*
+  The purpose of these templates is to implement a lightweight numerical type agnostic way of
+  doing multidimensional array access and operations. A good implementation seems
+  lacking in C++.
 
+  It allows arbitrary striding and data shapes.
+*/
 template <typename T>
 class vector2D {
 public:
+    /* 
+       d1 = n=1 dimension size
+       d2 = n=2 dimension size
+       t = datatype
+       s1 = Distance (in terms of units of T) in between contiguous array elements
+       s2 = Offset (in terms of units of T) between row elements.
 
-    vector2D(size_t d1=0, size_t d2=0, T const & t=T(), size_t s1 = 0, size_t s2 = 0) :
-        d1(d1+s2), d2(d2), s1(s1), s2(s2), data(d1*d2 + d1*s2, t)
+       I decided against byte striding because it can decrease performance.
+       Basically I'd prefer raw compute performance over memory performance.
+     */
+    vector2D(size_t d1=0, size_t d2=0, T const & t=T(), size_t s1 = 1, size_t s2 = 0) :
+        d1(d1), d2(d2), s1(s1), s2(s2), data(d2*d1*s1 + d2*s2, t)
     {}
 
     ~vector2D(){
@@ -28,11 +43,13 @@ public:
     }
     
     T & operator()(size_t i, size_t j) {
-        return data[j*d1 + i];
+	//return data[j*d1 + i];
+	return data[j*(d1*s1+s2) + i*s1];
     }
 
     T const & operator()(size_t i, size_t j) const {
-        return data[j*d1 + i];
+	//return data[j*d1 + i];
+	return data[j*(d1*s1+s2) + i*s1];
     }
     
     T & operator()(size_t i) {
@@ -43,9 +60,11 @@ public:
         return data[i];
     }
 
-    size_t size(){ return d1*d2; }
+    size_t size(){ return (d1*d2); }
     size_t d1s(){ return d1; }
     size_t d2s(){ return d2; }
+    size_t s1s(){ return s1; }
+    size_t s2s(){ return s2; }
     T* dp(){ return data.data();}
 
     void clear(){
@@ -54,13 +73,13 @@ public:
 
     void transpose(){
 
-	std::vector<T> datat(d1*d2,0);
+	std::vector<T> datat((d1*s1)*(d2+s2),0);
 	for(int j = 0; j < d1; ++j){
 	    for(int i = 0; i < d2; ++i){
-		datat[i*d2 + j] = data[j*d1 + i];
+		data[i*(d2*s1+s2) + j*s1] = data[j*(d1*s1+s2) + i*s1];
 	    }
 	}
-
+	free(data);
 	data = datat;
     }
 
@@ -74,22 +93,45 @@ private:
 template <typename T>
 class vector3D {
 public:
+    /* 
+
+       d1 = n=1 dimension size
+       d2 = n=2 dimension size
+       d3 = n=3 dimension size
+       t = datatype
+       s1 = Distance (in terms of units of T) in between contiguous array elements
+       s2 = Offset (in terms of units of T) between row elements.
+       s3 = Offset (in terms of units of T) between matrix elements.
+
+       I decided against byte striding because it can decrease performance.
+       Basically I'd prefer raw compute performance over memory performance.
+
+     */
     vector3D(size_t d1=0, size_t d2=0, size_t d3=0,
-	     T const & t=T(), size_t s1=0, size_t s2=0, size_t s3=0) :
-        d1(d1+s2), d2(d2+s3), d3(d3),
-	s1(s1), s2(s2), s3(s3), data(d1*d2*d3 + d1*s2 + d2*s3, t)
-    {}
+	//      T const & t=T(), size_t s1=1, size_t s2=0, size_t s3=0) :
+	// d1(d1+s2), d2(d2+s3), d3(d3),
+	// s1(s1), s2(s2), s3(s3), data(d1*d2*d3 + d1*s2 + d2*s3, t)
+	     T const & t=T(), size_t s1=1, size_t s2=0, size_t s3=0) :
+        d1(d1), d2(d2), d3(d3),
+	s1(s1), s2(s2), s3(s3),
+	data(d3*(d2*(d1*s1 +s2)+s3), t)
+    {
+	n3s = d2*(d1*s1+s2)+s3;
+	n2s = d1*s1+s2;
+    }
 
     ~vector3D(){
 	
     }
 
     T & operator()(size_t i, size_t j, size_t k) {
-        return data[k*d1*d2 + j*d1 + i];
+	//return data[k*d1*d2 + j*d1 + i];
+        return data[k*n3s + j*n2s + i*s1];
     }
 
     T const & operator()(size_t i, size_t j, size_t k) const {
-        return data[k*d1*d2 + j*d1 + i];
+	//return data[k*d1*d2 + j*d1 + i];
+        return data[k*n3s + j*n2s + i*s1];
     }
 
     T & operator()(size_t i) {
@@ -104,8 +146,15 @@ public:
     size_t d1s(){ return d1; }
     size_t d2s(){ return d2; }
     size_t d3s(){ return d3; }
+    size_t s1s(){ return s1; }
+    size_t s2s(){ return s2; }
+    size_t s3s(){ return s3; }
 
+    
     T* dp(){ return data.data();}
+    T* pp(std::size_t planei){
+	return data.data() + planei*n3s;
+    }
 
     void clear(){
 	std::fill(data.begin(), data.end(), 0);
@@ -123,10 +172,11 @@ public:
 
     }
 
-    
 private:
     size_t d1,d2,d3;
     size_t s1,s2,s3;
+    size_t n2s,n3s;
+    
     std::vector<T> data;
 };
 

@@ -44,13 +44,12 @@ int main(int argc, char **argv){
 
     int support_uv = sepkern_uv->size;
     int support_w = sepkern_w->size;
-    
-    
+       
     auto seed = std::chrono::system_clock::now().time_since_epoch().count();
     std::default_random_engine generator;
     generator.seed(seed);
     std::uniform_real_distribution<double> distribution(0,1);
-    vector3D<std::complex<double> > wstacks_s (oversampg, oversampg, w_planes, {0.0,0.0},1,7,9);
+    vector3D<std::complex<double> > wstacks_s (oversampg, oversampg, w_planes, {0.0,0.0},1,9,5);
     wstacks_s.fill_random();
 
     long flops_per_vis = 6 * support_uv * support_uv * support_w; // 3D Deconvolve
@@ -83,8 +82,6 @@ int main(int argc, char **argv){
 						 sepkern_uv,
 						 sepkern_w);
     }
-
-    
     std::chrono::high_resolution_clock::time_point t2 = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>( t2 - t1 ).count();
     float duration_s = static_cast<float>(duration)/1000;

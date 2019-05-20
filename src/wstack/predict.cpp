@@ -14,6 +14,12 @@
 #include <omp.h>
 
 #include "wstack_common.h"
+
+// We use non-unit strides to alleviate cache thrashing effects.
+    const int element_stride = 1;
+    const int row_stride = 8;
+    const int matrix_stride = 10;
+
 /*
   Predicts a visibility at a particular point using the direct fourier transform.
  */
@@ -265,18 +271,22 @@ void multiply_fresnel_pattern(vector2D<std::complex<double>>& fresnel,
     std::complex<double> ft = {0.0,0.0};
     std::complex<double> st = {0.0,0.0};
     std::complex<double> test = {0.0,0.0};
-    for (int i = 0; i < sky.size(); ++i){
-	ft = fresnel(i);
-	st = sky(i);
 
+    size_t grid_sizex = fresnel.d1s();
+    size_t grid_sizey = fresnel.d2s();
+    
+    for (int j = 0; j < grid_sizey; ++j){
+	for (int i = 0; i < grid_sizex; ++i){
+	    ft = fresnel(i,j);
+	    st = sky(i,j);	
 	
-	
-	if (t == 1){
-	    sky(i) = st * ft;
-	} else {
+	    if (t == 1){
+		sky(i,j) = st * ft;
+	    } else {
 	    
-	    if (ft == test) continue; // Otherwise std::pow goes a bit fruity
-	    sky(i) = st  * std::pow(ft,t);
+		if (ft == test) continue; // Otherwise std::pow goes a bit fruity
+		sky(i,j) = st  * std::pow(ft,t);
+	    }
 	}
     }
 }
@@ -302,24 +312,74 @@ void zero_pad_2Darray(const vector2D<std::complex<double>>& array,
 // Stealing Peters code has become the hallmark of my PhD.
 void fft_shift_2Darray(vector2D<std::complex<double>>& array){
 
-    size_t grid_sizex = array.d1s();
-    size_t grid_sizey = array.d2s();
+    std::size_t grid_sizex = array.d1s();
+    std::size_t grid_sizey = array.d2s();
     
     assert(grid_sizex % 2 == 0);
     assert(grid_sizey % 2 == 0);
-    
+    int i1,j1;
     for (int j = 0; j < grid_sizex; ++j){
 	for (int i = 0; i < grid_sizey/2; ++i){
-	    int ix0 = j * grid_sizex + i;
-	    int ix1 = (ix0 + (grid_sizex + 1) * (grid_sizex/2)) % (grid_sizex * grid_sizey);
+	    // int ix0 = j * grid_sizex + i;
+	    // int ix1 = (ix0 + (grid_sizex + 1) * (grid_sizex/2)) % (grid_sizex * grid_sizey);
 
-	    std::complex<double> temp = array(ix0);
-	    array(ix0) = array(ix1);
-	    array(ix1) = temp;
+	    i1 = i + grid_sizex/2;
+	    if (j < grid_sizey/2){
+		j1 = j + grid_sizey/2;
+	    } else {
+		j1 = j - grid_sizey/2;
+	    }
+	   
+	    std::complex<double> temp = array(i,j);
+	    array(i,j) = array(i1,j1);
+	    array(i1,j1) = temp;
 	}
     }
 }
 
+
+inline void memcpy_plane_to_stack(vector2D<std::complex<double>>&plane,
+			   vector3D<std::complex<double>>&stacks,
+			   std::size_t grid_size,
+			   std::size_t planei){
+
+    //Calculate memory copy amount based on striding information.
+    //Assume strides for n=1 and n=2 dimensions are the same between
+    //stacks and plane. If they aren't then can't use memcpy directly.
+
+    std::size_t p1s,p2s,s1s,s2s,s3s,p1d,p2d,s1d,s2d;
+
+
+    p1d = plane.d1s();
+    p2d = plane.d2s();
+    s1d = stacks.d1s();
+    s2d = stacks.d2s();
+
+    // Make sure dimensions are the same
+    assert(p1d == s1d);
+    assert(p2d == s2d);
+   
+    
+    p1s = plane.s1s();
+    p2s = plane.s2s();
+    s1s = stacks.s1s();
+    s2s = stacks.s2s();
+    s3s = stacks.s3s();
+    
+    // Let us really make sure the strides are the same
+    assert(p1s == s1s);
+    assert(p2s = s2s);
+
+    
+
+    std::size_t copy_size = (p1d*p1s + p2s) * p2d * sizeof(std::complex<double>); 
+
+    std::complex<double> *wp = stacks.pp(planei);  
+    std::complex<double> *pp = plane.dp();
+    std::memcpy(wp,pp,copy_size);
+
+}
+			   
 
 
 std::vector<std::complex<double>> wstack_predict(double theta,
@@ -343,6 +403,9 @@ std::vector<std::complex<double>> wstack_predict(double theta,
     assert(oversampg > grid_size);
     //int gd = (oversampg - grid_size)/2;
 
+
+    
+    
     // Fresnel Pattern
     
     vector2D<std::complex<double>> wtransfer = generate_fresnel(theta,lam,dw,x0);
@@ -356,28 +419,47 @@ std::vector<std::complex<double>> wstack_predict(double theta,
     
     
     // We double our grid size to get the optimal spacing.
-    vector3D<std::complex<double> > wstacks(oversampg,oversampg,w_planes,{0.0,0.0});
-    vector2D<std::complex<double> > skyp(oversampg,oversampg,{0.0,0.0});
-    vector2D<std::complex<double> > plane(oversampg,oversampg,{0.0,0.0});
+    vector3D<std::complex<double> > wstacks(oversampg,oversampg,w_planes,{0.0,0.0},element_stride,row_stride,matrix_stride);
+    vector2D<std::complex<double> > skyp(oversampg,oversampg,{0.0,0.0},element_stride,row_stride);
+    vector2D<std::complex<double> > plane(oversampg,oversampg,{0.0,0.0},element_stride,row_stride);
     fftw_plan plan;
     std::cout << "Planning fft's... " << std::flush;
 
     fftw_init_threads();
-    fftw_plan_with_nthreads(omp_get_max_threads());
-
-    
+    fftw_plan_with_nthreads(omp_get_max_threads());    
     fftw_import_wisdom_from_filename("fftw.wisdom");
-    plan = fftw_plan_dft_2d(2*grid_size,2*grid_size,
-    			    reinterpret_cast<fftw_complex*>(skyp.dp()),
-     			    reinterpret_cast<fftw_complex*>(plane.dp()),
-     			    FFTW_FORWARD,
-     			    FFTW_MEASURE);
+
+    fftw_iodim *iodims_plane = (fftw_iodim *)malloc(2*sizeof(fftw_iodim));
+    fftw_iodim *iodims_howmany = (fftw_iodim *)malloc(sizeof(fftw_iodim));
+    // Setup row dims
+    iodims_plane[0].n = 2*grid_size;
+    iodims_plane[0].is = 1; // Keep row elements contiguous (for now)
+    iodims_plane[0].os = iodims_plane[0].is;
+
+    // Setup matrix dims
+    iodims_plane[1].n = 2*grid_size;
+    iodims_plane[1].is = row_stride  + 2*grid_size*element_stride;
+    iodims_plane[1].os = iodims_plane[1].is;
+
+    // Give a unit howmany rank dimensions
+    iodims_howmany[0].n = 1;
+    iodims_howmany[0].is = 1;
+    iodims_howmany[0].os = 1;
+    
+    // I'm a big boy now. Guru mode fft's~~
+    plan = fftw_plan_guru_dft(2, iodims_plane, 1, iodims_howmany,
+			      reinterpret_cast<fftw_complex*>(skyp.dp()),
+			      reinterpret_cast<fftw_complex*>(plane.dp()),
+			      FFTW_FORWARD,
+			      FFTW_MEASURE);
+ 
     fftw_export_wisdom_to_filename("fftw.wisdom");
     std::cout << "done\n" << std::flush;
     skyp.clear();
     plane.clear();
     std::cout << "Generating sky... " << std::flush;
-    generate_sky(points,skyp,theta,lam,du,dw,x0,grid_corr_lm,grid_corr_n);    
+    generate_sky(points,skyp,theta,lam,du,dw,x0,grid_corr_lm,grid_corr_n);
+
     std::cout << "done\n" << std::flush;
     fft_shift_2Darray(skyp);
     fft_shift_2Darray(wtransfer);
@@ -389,20 +471,16 @@ std::vector<std::complex<double>> wstack_predict(double theta,
     std::chrono::high_resolution_clock::time_point t1_ws = std::chrono::high_resolution_clock::now();
     for(int i = 0; i < w_planes; ++i){
 
-	std::cout << "Processing Plane: " << i << "\n";
-	
+	std::cout << "Processing Plane: " << i << "\n";	
 	fftw_execute(plan);
 	fft_shift_2Darray(plane);
-	
-	//Copy Plane into our stacks
-	std::complex<double> *wp = wstacks.dp() + i*(4*grid_size*grid_size);
-	std::complex<double> *pp = plane.dp();
-	std::memcpy(wp,pp,sizeof(std::complex<double>) * (4*grid_size*grid_size));
-
+	memcpy_plane_to_stack(plane,
+			      wstacks,
+			      grid_size,
+			      i);
 	multiply_fresnel_pattern(wtransfer,skyp,1);
-	//std::cout << wstacks(2048,2048,i) << "\n";
-	//std::cout << predict_visibility_quantized(points,theta,lam,0.0,0.0,(i-std::floor(w_planes/2))*dw) << "\n";
-	plane.clear();	
+	plane.clear();
+	
     }
     std::chrono::high_resolution_clock::time_point t2_ws = std::chrono::high_resolution_clock::now();
     auto duration_ws = std::chrono::duration_cast<std::chrono::milliseconds>( t2_ws - t1_ws ).count();
@@ -501,19 +579,39 @@ std::vector<std::vector<std::complex<double>>> wstack_predict_lines(double theta
     std::cout << "W Planes: " << w_planes << "\n";
        
     // We double our grid size to get the optimal spacing.
-    vector3D<std::complex<double> > wstacks(oversampg,oversampg,w_planes,{0.0,0.0});
-    vector2D<std::complex<double> > skyp(oversampg,oversampg,{0.0,0.0});
-    vector2D<std::complex<double> > plane(oversampg,oversampg,{0.0,0.0});
+    vector3D<std::complex<double> > wstacks(oversampg,oversampg,w_planes,{0.0,0.0}, element_stride, row_stride, matrix_stride);
+    vector2D<std::complex<double> > skyp(oversampg,oversampg,{0.0,0.0}, element_stride, row_stride);
+    vector2D<std::complex<double> > plane(oversampg,oversampg,{0.0,0.0}, element_stride, row_stride);
     fftw_plan plan;
     std::cout << "Planning fft's... " << std::flush;
     fftw_init_threads();
     fftw_plan_with_nthreads(omp_get_max_threads());
     fftw_import_wisdom_from_filename("fftw_l.wisdom");
-    plan = fftw_plan_dft_2d(2*grid_size,2*grid_size,
-    			    reinterpret_cast<fftw_complex*>(skyp.dp()),
-     			    reinterpret_cast<fftw_complex*>(plane.dp()),
-     			    FFTW_FORWARD,
-     			    FFTW_MEASURE);
+
+    fftw_iodim *iodims_plane = (fftw_iodim *)malloc(2*sizeof(fftw_iodim));
+    fftw_iodim *iodims_howmany = (fftw_iodim *)malloc(sizeof(fftw_iodim));
+    // Setup row dims
+    iodims_plane[0].n = 2*grid_size;
+    iodims_plane[0].is = 1; // Keep row elements contiguous (for now)
+    iodims_plane[0].os = iodims_plane[0].is;
+
+    // Setup matrix dims
+    iodims_plane[1].n = 2*grid_size;
+    iodims_plane[1].is = row_stride  + 2*grid_size*element_stride;
+    iodims_plane[1].os = iodims_plane[1].is;
+
+    // Give a unit howmany rank dimensions
+    iodims_howmany[0].n = 1;
+    iodims_howmany[0].is = 1;
+    iodims_howmany[0].os = 1;
+    
+    // I'm a big boy now. Guru mode fft's~~
+    plan = fftw_plan_guru_dft(2, iodims_plane, 1, iodims_howmany,
+			      reinterpret_cast<fftw_complex*>(skyp.dp()),
+			      reinterpret_cast<fftw_complex*>(plane.dp()),
+			      FFTW_FORWARD,
+			      FFTW_MEASURE);
+;
     fftw_export_wisdom_to_filename("fftw_l.wisdom");
     std::cout << "done\n" << std::flush;
     skyp.clear();
@@ -534,10 +632,10 @@ std::vector<std::vector<std::complex<double>>> wstack_predict_lines(double theta
 	std::cout << "Processing Plane: " << i << "\n";
 	fftw_execute(plan);
 	fft_shift_2Darray(plane);
-	//Copy Plane into our stacks
-	std::complex<double> *wp = wstacks.dp() + i*(4*grid_size*grid_size);
-	std::complex<double> *pp = plane.dp();
-	std::memcpy(wp,pp,sizeof(std::complex<double>) * (4*grid_size*grid_size));
+	memcpy_plane_to_stack(plane,
+			      wstacks,
+			      grid_size,
+			      i);	
 	multiply_fresnel_pattern(wtransfer,skyp,1);
 	plane.clear();	
     }
