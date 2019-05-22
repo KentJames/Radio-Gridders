@@ -2,9 +2,13 @@
 #include <iostream>
 #include <cassert>
 #include <sys/time.h>
+#include <random>
+#include <chrono>
+#include <random>
 
 //CUDA Includes
 #include <cuComplex.h>
+#include "cublas_v2.h"
 #include "cuda.h"
 #include "math.h"
 #include "cuda_runtime_api.h"
@@ -14,11 +18,11 @@
 #include "radio.cuh"
 
 // Saves me writing a CLI. Sorry Jayce.
-#define GRID_SIZE 128 // UV Grid Size in 1-D
+#define GRID_SIZE 64 // UV Grid Size in 1-D
 #define ANTENNAS 256 // Antennas to grid
 #define ILLUM_X 2 // Aperture pattern extent. Assuming top hat,
 #define ILLUM_Y 2 // '' for Y
-#define NBATCH 8192
+#define NBATCH 1000
 #define CHANNELS 4
 
 
@@ -209,6 +213,106 @@ __host__ cudaError_t epic_romein(cuComplex* fdata,
     return cudaSuccess;
 }
 
+/*************************************
+   Let's have a look at using a dft matrix
+*************************************/
+
+ 
+ __host__ cudaError_t epic_dft_test(int support_size,
+				    int grid_size,
+				    int data_size){
+
+     struct timeval tcuda_start, tcuda_end;
+     cublasStatus_t stat;
+     cublasHandle_t handle;
+     stat = cublasCreate(&handle);
+
+     std::size_t dft_size = grid_size * grid_size * data_size * sizeof(cuComplex);
+     std::size_t data_sizem = data_size * sizeof(cuComplex);
+     std::size_t output_size = grid_size * grid_size * sizeof(cuComplex);
+     
+
+     cuComplex *dft_matrix_host = reinterpret_cast<cuComplex *>(malloc(dft_size));
+     cuComplex *data_matrix_host = reinterpret_cast<cuComplex *>(malloc(data_sizem));
+     cuComplex *output_matrix_host = reinterpret_cast<cuComplex *>(malloc(output_size));
+     cuComplex *alpha_host = reinterpret_cast<cuComplex *>(malloc(grid_size));
+     cuComplex *beta_host = reinterpret_cast<cuComplex *>(malloc(grid_size));
+
+     *(alpha_host) = make_cuComplex(1.0, 1.0);
+     *(beta_host) = make_cuComplex(0.0, 0.0);
+     
+     cuComplex *dft_matrix_device;
+     cuComplex *data_matrix_device;
+     cuComplex *output_matrix_device;
+     cuComplex *alpha_device;
+     cuComplex *beta_device;
+
+
+     cudaError_check(cudaMalloc(reinterpret_cast<void **>(&dft_matrix_device), dft_size));
+     cudaError_check(cudaMalloc(reinterpret_cast<void **>(&data_matrix_device), data_sizem));
+     cudaError_check(cudaMalloc(reinterpret_cast<void **>(&output_matrix_device), output_size));
+     cudaError_check(cudaMalloc(reinterpret_cast<void **>(&alpha_device), sizeof(cuComplex)));
+     cudaError_check(cudaMalloc(reinterpret_cast<void **>(&beta_device), sizeof(cuComplex)));
+     
+     
+     
+     auto seed = std::chrono::system_clock::now().time_since_epoch().count();
+     std::default_random_engine generator;
+     generator.seed(seed);
+     std::uniform_real_distribution<double> distribution(1.0,1.0);
+     
+     
+     // Populate with random numbers
+     for(int i = 0; i < grid_size*grid_size*data_size; ++i){
+	 
+	 double *dp = (double *)(dft_matrix_host + i);
+	 dp[0] = distribution(generator); // Re
+	 dp[1] = distribution(generator); // Im
+     }     
+     for(int i = 0; i < data_size; ++i){
+	 double *dp = (double *)(data_matrix_host + i);
+	 dp[0] = distribution(generator); // Re
+	 dp[1] = distribution(generator); // Im
+     }
+
+     
+     // Form our batches
+
+
+     
+
+     cudaError_check(cudaMemcpy(dft_matrix_device, dft_matrix_host, dft_size, cudaMemcpyHostToDevice));
+     cudaError_check(cudaMemcpy(data_matrix_device, data_matrix_host, data_sizem, cudaMemcpyHostToDevice));
+     cudaError_check(cudaMemcpy(output_matrix_device, output_matrix_host, output_size, cudaMemcpyHostToDevice));
+     cudaError_check(cudaMemcpy(alpha_device, alpha_host, sizeof(cuComplex), cudaMemcpyHostToDevice));
+     cudaError_check(cudaMemcpy(beta_device, beta_host, sizeof(cuComplex), cudaMemcpyHostToDevice));
+     cudaDeviceSynchronize();
+     gettimeofday(&tcuda_start,NULL);
+     stat = cublasCgemmStridedBatched(handle,
+				      CUBLAS_OP_N,
+				      CUBLAS_OP_N,
+				      grid_size * grid_size,
+				      1,
+				      data_size,
+				      (const cuComplex *)alpha_host, 
+				      dft_matrix_device, grid_size * grid_size, 0, 
+				      data_matrix_device, data_size, 0, 
+				      (const cuComplex *)beta_host,
+				      output_matrix_device,grid_size * grid_size, 0, NBATCH);
+     cudaError_check(cudaDeviceSynchronize());
+     gettimeofday(&tcuda_end,NULL);
+     std::cout << "done\n";
+     std::cout << "GEMM time... " << ((tcuda_end.tv_sec - tcuda_start.tv_sec)*1000000 + 
+					     (tcuda_end.tv_usec - tcuda_start.tv_usec));
+    std::cout << "us\n";
+
+    return cudaSuccess;
+    
+    
+ }
+
+ 
+
 /****************************************
    Naive Implementation for Validation
 *****************************************/
@@ -327,6 +431,13 @@ int main(){
     cudaError_check(epic_romein(fdata, illumination, uvgrid, x, y, z, ILLUM_X, GRID_SIZE, ANTENNAS));
     cudaError_check(cudaDeviceSynchronize());
 
+    //Run GEMM case
+    std::cout << "Running GEMM test case... " << std::flush;
+    epic_dft_test(1,GRID_SIZE,ANTENNAS);
+    std::cout << "done\n" << std::flush;
+
+
+    
     //Run validation test case
     std::cout << "Running validation case... " << std::flush;
     epic_naive(fdata, illumination, uvgrid_host, x, y, z, ILLUM_X, GRID_SIZE, ANTENNAS, NBATCH);
@@ -353,6 +464,8 @@ int main(){
 	std::cout << "FAIL\n";
     }
 
+
+
     //Lets look at the grid...
     double *row = (double *)malloc(sizeof(double) * GRID_SIZE);
     std::ofstream image_f ("image.out", std::ofstream::out | std::ofstream::binary);
@@ -366,6 +479,7 @@ int main(){
     }
     image_f.close();
     std::cout << "done\n";
+
 
     std::ofstream image_n ("image_naive.out", std::ofstream::out | std::ofstream::binary);
     std::cout << "Writing Naive Image to File... " << std::flush;
