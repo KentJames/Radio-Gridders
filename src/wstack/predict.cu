@@ -18,12 +18,109 @@
 #include <thrust/device_vector.h>
 #include <thrust/complex.h>
 
-
 //Our includes
 #include "wstack_common.h"
 #include "common_kernels.cuh"
 #include "radio.cuh"
 #include "predict.cuh"
+
+
+
+/*******************************************
+           3D Convolution Kernels
+********************************************/
+
+//Do everyone a favor Nvidia and just template everything properly. It's 2019 ffs.
+__device__ double cuda_floor(double x){ return floor(x);}
+__device__ float cuda_floor(float x){ return floorf(x);}
+
+__device__ double cuda_ceil(double x){ return ceil(x); }
+__device__ float cuda_ceil(float x){ return ceilf(x); }
+
+
+
+#define VIS_ACCUM_PER 4096 // Accumulate X visibilities at a time. 
+template <typename FloatType>
+__global__ void deconvolve_3D(thrust::complex<FloatType> *wstacks,
+			      thrust::complex<FloatType> *vis,
+			      FloatType *uvec,
+			      FloatType *vvec,
+			      FloatType *wvec,
+			      FloatType *gcf_uv,
+			      FloatType *gcf_w,
+			      FloatType du,
+			      FloatType dw,
+			      std::size_t vis_num,
+			      std::size_t aa_support_uv,
+			      std::size_t aa_support_w,
+			      std::size_t oversampling,
+			      std::size_t oversampling_w,
+			      std::size_t w_planes,
+			      std::size_t grid_size){
+
+
+    std::size_t x = blockIdx.x * blockDim.x + threadIdx.x;
+
+      
+    std::size_t aa_h = aa_support_uv/2;
+    std::size_t aaw_h = aa_support_w/2;
+
+    for(std::size_t i = 0; i < vis_num; i+= VIS_ACCUM_PER){
+
+	FloatType u = uvec[i+x];
+	FloatType v = vvec[i+x];
+	FloatType w = wvec[i+x];
+    
+	FloatType flu = u - cuda_ceil(u/du)*du;
+	FloatType flv = v - cuda_ceil(v/du)*du;
+	FloatType flw = w - cuda_ceil(w/dw)*dw;
+
+	std::size_t ovu = static_cast<std::size_t>(cuda_floor(abs(flu)/du * oversampling));
+	std::size_t ovv = static_cast<std::size_t>(cuda_floor(abs(flv)/du * oversampling));
+	std::size_t ovw = static_cast<std::size_t>(cuda_floor(abs(flw)/dw * oversampling));
+    
+	for(std::size_t dwi = -aaw_h; dwi < aaw_h; ++dwi){
+
+	    std::size_t dws = static_cast<std::size_t>(cuda_ceil(w/dw)) +
+		w_planes/2 + dwi;
+	    std::size_t aas_w = aa_support_w * ovw + (dwi+aaw_h);
+	    FloatType gridconv_w = gcf_w[aas_w];
+	
+	    for(std::size_t dvi = -aa_h; dvi < aa_h; ++dvi){
+		
+		std::size_t dvs = static_cast<std::size_t>(cuda_ceil(v/du)) + grid_size + dvi;
+		std::size_t aas_v = aa_support_uv * ovv + (dvi + aa_h);
+		FloatType gridconv_vw = gridconv_w * gcf_uv[aas_v];
+	    
+		for(std::size_t dui = -aa_h; dui < aa_h; ++dui){
+
+		    std::size_t dus = static_cast<std::size_t>(cuda_ceil(u/du)) + grid_size + dui;
+		    std::size_t aas_u = aa_support_uv * ovu + (dui + aa_h);
+		    FloatType gridconv_uvw = gridconv_vw * gcf_uv[aas_u];
+		    thrust::complex<FloatType> conv_point = wstacks[dws * grid_size * grid_size + dvs * grid_size + dus];
+		    vis[i+x] += conv_point * gridconv_uvw;
+		}
+	    }
+	}
+	
+    }
+
+
+}
+			      
+
+
+
+
+
+			     
+			      
+
+
+
+/*******************************************
+           2D Convolution Kernels
+********************************************/
 
 
 
@@ -41,13 +138,13 @@ __global__ void accumulate_cont(thrust::complex<FloatType> *grid,
     std::size_t y = blockIdx.y * blockDim.y + threadIdx.y;
     
     if(x < supp_size && y < supp_size){
-	pre_accum[ y * supp_size + x] = grid[ viscont->v[y] * grid_size
-					      + viscont->u[x]] *
+	pre_accum[ y * supp_size + x] =
+	    grid[ viscont->v[y] * grid_size
+		  + viscont->u[x]] *
 	    viscont->gcf_u[x] * viscont->gcf_v[y];
     }
     
 }
-
 
 #define blockSize_reduc 1024
 #define gridSize_reduc 24
@@ -72,7 +169,6 @@ __global__ void _reduce_to_vis(thrust::complex<FloatType> *pre_accum, //In
     }
     if (idx == 0)
         accum_array[accum_array_index] += r[0];
-
     
 }
 
@@ -400,7 +496,13 @@ __host__ std::vector<std::complex<double>> wstack_predict_cu_2D(double theta,
 
 }
 
-    // We return std::complex to keep interface consistency with the C++ code.
+
+/* 
+To optimise notes:
+- Way more copies than I think is necessary but I am lazy and inexperienced with thrust.
+- Deconvolution kernel is disgustingly inefficient, but that's v1.0 for you.
+ */
+ // We return std::complex to keep interface consistency with the C++ code.
 __host__ std::vector<std::complex<double>> wstack_predict_cu_3D(double theta,
 						double lam,
 						const std::vector<double>& points,
@@ -417,15 +519,14 @@ __host__ std::vector<std::complex<double>> wstack_predict_cu_3D(double theta,
 						struct sep_kernel_data *grid_corr_lm,
 						struct sep_kernel_data *grid_corr_n){
     
-    int grid_size = static_cast<int>(std::floor(theta * lam));
+    std::size_t grid_size = static_cast<std::size_t>(std::floor(theta * lam));
     double x0ih = std::round(0.5/x0);
-    int oversampg = static_cast<int>(x0ih * grid_size);
+    std::size_t oversampg = static_cast<std::size_t>(x0ih * grid_size);
     assert(oversampg > grid_size);
 
-
     // CUDA Grid Parameters
-    int wstack_gs = 32;
-    int wstack_bs = grid_size/wstack_gs;
+    std::size_t wstack_gs = 32;
+    std::size_t wstack_bs = grid_size/wstack_gs;
     dim3 dimGrid(wstack_bs,wstack_bs);
     dim3 dimBlock(wstack_gs,wstack_gs);
     
@@ -439,11 +540,40 @@ __host__ std::vector<std::complex<double>> wstack_predict_cu_3D(double theta,
     
     // Work out range of W-Planes    
     double max_w = std::sin(theta/2) * std::sqrt(2*(grid_size*grid_size));
-    int w_planes = std::ceil(max_w/dw) + aa_support_w + 1;
+    std::size_t w_planes = std::ceil(max_w/dw) + aa_support_w + 1;
 
     std::cout << "Max W: " << max_w << "\n";
     std::cout << "W Planes: " << w_planes << "\n";
 
+
+    std::cout << "Copying vis locs to GPU..." << std::flush;
+    thrust::host_vector<double> uvec_h(u.size(),0.0);
+    thrust::host_vector<double> vvec_h(v.size(),0.0);
+    thrust::host_vector<double> wvec_h(w.size(),0.0);
+    std::memcpy(uvec_h.data(),u.data(),sizeof(double) * u.size());
+    std::memcpy(vvec_h.data(),v.data(),sizeof(double) * v.size());
+    std::memcpy(wvec_h.data(),w.data(),sizeof(double) * w.size());    
+    thrust::device_vector<double> uvec_d = uvec_h;
+    thrust::device_vector<double> vvec_d = vvec_h;
+    thrust::device_vector<double> wvec_d = wvec_h;
+    
+    //uvec_d = uvec_h; vvec_d = vvec_h; wvec_d = wvec_h;
+    std::cout << "done\n";
+
+    std::cout << "Copying convolution kernels to GPU..." << std::flush;
+    std::size_t uv_conv_size = grid_conv_uv->oversampling * grid_conv_uv->size;
+    std::size_t w_conv_size = grid_conv_w->oversampling * grid_conv_w->size;
+    
+    thrust::host_vector<double> gcf_uv_h(uv_conv_size, 0.0);
+    thrust::host_vector<double> gcf_w_h(w_conv_size, 0.0);
+
+    std::memcpy(gcf_uv_h.data(), grid_conv_uv->data, sizeof(double) * uv_conv_size);
+    std::memcpy(gcf_w_h.data(), grid_conv_w->data, sizeof(double) * w_conv_size);
+    thrust::device_vector<double> gcf_uv_d = gcf_uv_h;
+    thrust::device_vector<double> gcf_w_d = gcf_w_h;
+    std::cout << "done\n";
+
+    
 
     std::cout << "Generating sky... " << std::flush;
     vector2D<std::complex<double>> skyp(oversampg,oversampg,{0.0,0.0});
@@ -512,7 +642,31 @@ __host__ std::vector<std::complex<double>> wstack_predict_cu_3D(double theta,
 
 	
     }
-    std::vector<std::complex<double> > vis(1,{0.0,0.0});   
-    return vis;
+
+    
+    deconvolve_3D<double> <<< 32, VIS_ACCUM_PER/32 >>>
+	((thrust::complex<double> *)thrust::raw_pointer_cast(wstacks.data()),
+	 (thrust::complex<double> *)thrust::raw_pointer_cast(visibilities_d.data()),
+	 (double *)thrust::raw_pointer_cast(uvec_d.data()),
+	 (double *)thrust::raw_pointer_cast(vvec_d.data()),
+	 (double *)thrust::raw_pointer_cast(wvec_d.data()),
+	 (double *)thrust::raw_pointer_cast(gcf_uv_d.data()),
+	 (double *)thrust::raw_pointer_cast(gcf_w_d.data()),
+	 du, dw,
+	 u.size(),
+	 static_cast<std::size_t>(grid_conv_uv->size),
+	 static_cast<std::size_t>(grid_conv_w->size),
+	 static_cast<std::size_t>(grid_conv_uv->oversampling),
+	 static_cast<std::size_t>(grid_conv_w->oversampling),
+	 w_planes,
+	 grid_size);
+		  
+		  
+		  
+    
+    visibilities_h = visibilities_d;
+    std::vector<std::complex<double>> visr (visibilities_h.size(),{0.0,0.0});
+    std::memcpy(visr.data(),visibilities_h.data(),sizeof(std::complex<double>) * visibilities_h.size());
+    return visr;
 
 }
