@@ -9,7 +9,7 @@ endif
 ifndef CUDA
 override LDFLAGS +=  -lm  -L../common -lomp -lhdf5_r -lfftw3_threads -lfftw3 -lhdf5 
 else
-override LDFLAGS += -L../common -lomp -lhdf5_cu -lfftw3_threads -lfftw3 -lm -lhdf5 -L$(CUDA_LIBDIR) -lcuda -lcudart -lcufft
+override LDFLAGS += -L../common -lgomp -lhdf5_cu -lfftw3_threads -lfftw3 -lm -lhdf5 -L$(CUDA_LIBDIR) -lcuda -lcudart -lcufft
 endif
 
 override CUDA_FLAGS +=-std=c++14 -I../common

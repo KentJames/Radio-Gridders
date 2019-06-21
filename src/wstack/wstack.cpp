@@ -212,9 +212,9 @@ int main(int argc, char **argv) {
     if(cuda_acceleration){
 
 	std::cout << "Loading Kernel...";
-	load_sep_kern_CUDA(sepkern_uv_file,sepkern_uv);
+	load_sep_kern_CUDA_T(sepkern_uv_file,sepkern_uv);
 	std::cout << "Loading W Kernel...";
-	load_sep_kern_CUDA(sepkern_w_file,sepkern_w);
+	load_sep_kern_CUDA_T(sepkern_w_file,sepkern_w);
 	
 	std::cout << "Loading AA Kernel...";
 	load_sep_kern_CUDA(sepkern_lm_file, sepkern_lm);
@@ -252,28 +252,8 @@ int main(int argc, char **argv) {
     */   
     if (mode == 0){
 
-
-	std::vector<std::complex<double>> visq;
-	std::vector<std::complex<double>>  vis;
-	std::vector<double> points = generate_random_points(npts, theta);
-
-
-	// STOP GAP Measure. 
-	std::vector<double> uvec(300000,14.6);
-	std::vector<double> vvec(300000,-4.5);
-	std::vector<double> wvec(300000,0.0);
-	std::vector<double> uvwvec(3*300000,0.0);
-
 	
-	for (std::size_t i = 0; i < uvec.size(); ++i){
-	    uvwvec[3*i + 0] = uvec[i];
-	    uvwvec[3*i + 1] = vvec[i];
-	    uvwvec[3*i + 2] = wvec[i];
-	    
-	}
 
-	std::vector<double> uvwvec_cli(3,0.0);
-	
 	if (checkCmdLineFlag(argc, (const char **) argv, "pu") == 0 ||
 	    checkCmdLineFlag(argc, (const char **) argv, "pv") == 0 ||
 	    checkCmdLineFlag(argc, (const char **) argv, "pw") == 0) {
@@ -282,11 +262,36 @@ int main(int argc, char **argv) {
 	    return 0;
 	}
 	else {
-	    uvwvec_cli[0] =  getCmdLineArgumentDouble(argc, (const char **) argv, "pu");
-	    uvwvec_cli[1] =  getCmdLineArgumentDouble(argc, (const char **) argv, "pv");
-	    uvwvec_cli[2] =  getCmdLineArgumentDouble(argc, (const char **) argv, "pw");
+	    pu =  getCmdLineArgumentDouble(argc, (const char **) argv, "pu");
+	    pv =  getCmdLineArgumentDouble(argc, (const char **) argv, "pv");
+	    pw =  getCmdLineArgumentDouble(argc, (const char **) argv, "pw");
 	}
 
+
+	
+
+
+	std::vector<std::complex<double>> visq;
+	std::vector<std::complex<double>>  vis;
+	std::vector<double> points = generate_testcard_dataset(theta);
+
+
+	// STOP GAP Measure. 
+	std::vector<double> uvec(300,pu);
+	std::vector<double> vvec(300,pv);
+	std::vector<double> wvec(300,pw);
+	std::vector<double> uvwvec(3*300,0.0);
+
+	
+	for (std::size_t i = 0; i < uvec.size(); ++i){
+	    uvwvec[3*i + 0] = uvec[i];
+	    uvwvec[3*i + 1] = vvec[i];
+	    uvwvec[3*i + 2] = wvec[i];	    
+	}
+
+
+	
+	
 	
 	
 #ifdef CUDA_ACCELERATION
@@ -294,7 +299,6 @@ int main(int argc, char **argv) {
 
 	    // Placeholder for now.
 	    // TODO: Add import from file.
-
 
 	    vis = wstack_predict_cu_3D(theta,
 				       lambda,
@@ -311,15 +315,11 @@ int main(int argc, char **argv) {
 				       sepkern_lm,
 				       sepkern_w);
 				    
-				    
-	    
-	    
-
 	} else {
 #endif	    
 	    
 	    std::cout << "##### W Stacking #####\n"; 	    
-	    visq = predict_visibility_quantized_vec(points,theta,lambda,uvwvec);
+	    
 	    vis = wstack_predict(theta,
 				 lambda,
 				 points,
@@ -337,12 +337,12 @@ int main(int argc, char **argv) {
 	}
 #endif
 
-	// if(npts < 10){
-	//     std::for_each(visq.begin(), visq.end(), [](const std::complex<double>& n) { std::cout << n << " ";});
-	//     std::cout << "\n";
-	//     std::for_each(vis.begin(), vis.end(), [](const std::complex<double>& n) { std::cout << n << " ";});
-	//     std::cout << "\n";
-	// }
+
+	std::cout << "Example Vis: " << vis[33] << " " << vis[282] << "\n";
+	std::cout << "Generating DFT visibilities for error calculation..." << std::flush;
+	visq = predict_visibility_quantized_vec(points,theta,lambda,uvwvec);	
+	std::cout << "Example DFT Vis: " << visq[33] << " " << visq[282] << "\n";
+	std::cout << "done\n";
 	
 	std::vector<double> error (visq.size(), 0.0);
 	std::transform(vis.begin(),vis.end(),visq.begin(),error.begin(),
