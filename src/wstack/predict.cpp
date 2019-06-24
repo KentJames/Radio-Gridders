@@ -155,13 +155,28 @@ std::vector<double> generate_testcard_dataset(double theta){
     std::transform(points.begin(), points.end(), points.begin(),
 		   [theta](double c) -> double { return c * (theta/2);});
 
-    for(int i = 0; i < points.size(); ++i){
+    for(std::size_t i = 0; i < points.size(); ++i){
 	std::cout << points[i] << " ";
        
     }
     std::cout << "\n";
     return points;
 }
+
+std::vector<double> generate_testcard_dataset_simple(double theta){
+
+    std::vector<double> points = {0.0,0.0};
+    std::transform(points.begin(), points.end(), points.begin(),
+		   [theta](double c) -> double { return c * (theta/2);});
+
+    for(std::size_t i = 0; i < points.size(); ++i){
+	std::cout << points[i] << " ";
+       
+    }
+    std::cout << "\n";
+    return points;
+}
+
 
 
 vector2D<std::complex<double> > generate_fresnel(double theta,
@@ -226,7 +241,6 @@ void generate_sky(const std::vector<double>& points,
 	double l = points[2*i];
 	double m = points[2*i + 1];
 
-	
 	int lc = static_cast<int>(std::floor((l / theta + 0.5) *
 					     static_cast<double>(grid_size)));
         int mc = static_cast<int>(std::floor((m / theta + 0.5) *
@@ -237,7 +251,6 @@ void generate_sky(const std::vector<double>& points,
 	double lq = (double)lc/lam - theta/2;
 	double mq = (double)mc/lam - theta/2;
 	double n = std::sqrt(1.0 - lq*lq - mq*mq) - 1.0;
-
 	// // Calculate grid correction function
 
 	int lm_size_t = grid_corr_lm->size * grid_corr_lm->oversampling;
@@ -248,12 +261,11 @@ void generate_sky(const std::vector<double>& points,
 	int aau = std::floor((du*lq)/lm_step) + lm_size_t/2;
 	int aav = std::floor((du*mq)/lm_step) + lm_size_t/2;
 	int aaw = std::floor((dw*n)/n_step) + n_size_t/2;
-
-	    
+	
 	double a = 1.0;
 	a *= grid_corr_lm->data[aau];
 	a *= grid_corr_lm->data[aav];
-	a *= grid_corr_n->data[aaw];	
+	a *= grid_corr_n->data[aaw];
 
 	std::complex<double> source = {1.0,0.0};
 	source = source / a;
@@ -263,6 +275,7 @@ void generate_sky(const std::vector<double>& points,
     }
     
 }
+
 
 void multiply_fresnel_pattern(vector2D<std::complex<double>>& fresnel,
 			      vector2D<std::complex<double>>& sky,
@@ -275,8 +288,8 @@ void multiply_fresnel_pattern(vector2D<std::complex<double>>& fresnel,
     size_t grid_sizex = fresnel.d1s();
     size_t grid_sizey = fresnel.d2s();
     
-    for (int j = 0; j < grid_sizey; ++j){
-	for (int i = 0; i < grid_sizex; ++i){
+    for (std::size_t j = 0; j < grid_sizey; ++j){
+	for (std::size_t i = 0; i < grid_sizex; ++i){
 	    ft = fresnel(i,j);
 	    st = sky(i,j);	
 	
@@ -318,8 +331,8 @@ void fft_shift_2Darray(vector2D<std::complex<double>>& array){
     assert(grid_sizex % 2 == 0);
     assert(grid_sizey % 2 == 0);
     int i1,j1;
-    for (int j = 0; j < grid_sizex; ++j){
-	for (int i = 0; i < grid_sizey/2; ++i){
+    for (std::size_t j = 0; j < grid_sizex; ++j){
+	for (std::size_t i = 0; i < grid_sizey/2; ++i){
 	    // int ix0 = j * grid_sizex + i;
 	    // int ix1 = (ix0 + (grid_sizex + 1) * (grid_sizex/2)) % (grid_sizex * grid_sizey);
 
@@ -459,7 +472,7 @@ std::vector<std::complex<double>> wstack_predict(double theta,
     plane.clear();
     std::cout << "Generating sky... " << std::flush;
     generate_sky(points,skyp,theta,lam,du,dw,x0,grid_corr_lm,grid_corr_n);
-
+    std::cout << "Sky: " << skyp(grid_size,grid_size) << "\n";
     std::cout << "done\n" << std::flush;
     fft_shift_2Darray(skyp);
     fft_shift_2Darray(wtransfer);
@@ -641,7 +654,7 @@ std::vector<std::vector<std::complex<double>>> wstack_predict_lines(double theta
 	memcpy_plane_to_stack(plane,
 			      wstacks,
 			      grid_size,
-			      i);	
+			      i);
 	multiply_fresnel_pattern(wtransfer,skyp,1);
 	plane.clear();	
     }

@@ -322,7 +322,7 @@ void generate_sky(const std::vector<double>& points,
 std::vector<double> generate_random_points(int npts, double theta);
 
 std::vector<double> generate_testcard_dataset(double theta);
-
+std::vector<double> generate_testcard_dataset_simple(double theta);
 
 static inline std::complex<double> deconvolve_visibility(std::vector<double> uvw,
 					   double du,

@@ -277,10 +277,10 @@ int main(int argc, char **argv) {
 
 
 	// STOP GAP Measure. 
-	std::vector<double> uvec(300,pu);
-	std::vector<double> vvec(300,pv);
-	std::vector<double> wvec(300,pw);
-	std::vector<double> uvwvec(3*300,0.0);
+	std::vector<double> uvec(npts,pu);
+	std::vector<double> vvec(npts,pv);
+	std::vector<double> wvec(npts,pw);
+	std::vector<double> uvwvec(3*npts,0.0);
 
 	
 	for (std::size_t i = 0; i < uvec.size(); ++i){
@@ -313,7 +313,7 @@ int main(int argc, char **argv) {
 				       sepkern_uv,
 				       sepkern_w,
 				       sepkern_lm,
-				       sepkern_w);
+				       sepkern_n);
 				    
 	} else {
 #endif	    
@@ -338,11 +338,12 @@ int main(int argc, char **argv) {
 #endif
 
 
-	std::cout << "Example Vis: " << vis[33] << " " << vis[282] << "\n";
+	
 	std::cout << "Generating DFT visibilities for error calculation..." << std::flush;
-	visq = predict_visibility_quantized_vec(points,theta,lambda,uvwvec);	
-	std::cout << "Example DFT Vis: " << visq[33] << " " << visq[282] << "\n";
+	visq = predict_visibility_quantized_vec(points,theta,lambda,uvwvec);
 	std::cout << "done\n";
+	std::cout << "Example Vis: " << vis[0] << "\n";
+	std::cout << "Example DFT Vis: " << visq[0] << "\n";
 	
 	std::vector<double> error (visq.size(), 0.0);
 	std::transform(vis.begin(),vis.end(),visq.begin(),error.begin(),
