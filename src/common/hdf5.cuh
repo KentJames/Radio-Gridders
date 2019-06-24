@@ -173,6 +173,8 @@ extern "C" {
 		    double min_len, double max_len);
 
   int load_sep_kern_CUDA(const char *filename, struct sep_kernel_data *sepkern);
+
+  int load_sep_kern_CUDA_T(const char *filename, struct sep_kernel_data *sepkern);
     
   void flatten_visibilities_CUDA(struct vis_data *vis, struct flat_vis_data *flat_vis);
 

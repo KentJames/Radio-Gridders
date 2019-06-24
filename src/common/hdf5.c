@@ -1272,7 +1272,7 @@ int load_sep_kern_CUDA(const char *filename, struct sep_kernel_data *sepkern)
     // Read kernel
     hsize_t total_size = sepkern->oversampling * sepkern->size;
     cudaError_t err = cudaMallocManaged((void**)&sepkern->data, total_size * sizeof(double _Complex), cudaMemAttachGlobal);
-    printf("Error: %d",err);
+    //printf("Error: %d",err);
     //sepkern->data = (double *)calloc(sizeof(double), total_size);
     if (H5Dread(dset, H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL, H5P_DEFAULT, sepkern->data) < 0) {
         fprintf(stderr, "Failed to read separable kernel data from %s!\n", filename);
@@ -1290,6 +1290,70 @@ int load_sep_kern_CUDA(const char *filename, struct sep_kernel_data *sepkern)
 
     return 0;
 }
+
+int load_sep_kern_CUDA_T(const char *filename, struct sep_kernel_data *sepkern)
+{
+
+    // Open file
+    hid_t sepkern_f = H5Fopen(filename, H5F_ACC_RDONLY, H5P_DEFAULT);
+    if (sepkern_f < 0) {
+        fprintf(stderr, "Could not open separable kernel file %s!\n", filename);
+        return 1;
+    }
+
+    // Open the data set
+    hid_t dset = H5Dopen(sepkern_f, "sepkern/kern", H5P_DEFAULT);
+    if (dset < 0) {
+        fprintf(stderr, "'sepkern/kern' dataset could not be opened from file %s!\n", filename);
+        H5Fclose(sepkern_f);
+        return 1;
+    }
+
+    hid_t attr = H5Aopen(sepkern_f, "du", H5P_DEFAULT);
+    H5Aread(attr,H5Aget_type(attr),&sepkern->du);
+    
+    attr = H5Aopen(sepkern_f, "dw", H5P_DEFAULT);
+    H5Aread(attr,H5Aget_type(attr),&sepkern->dw);
+
+    attr = H5Aopen(sepkern_f, "x0", H5P_DEFAULT);
+    H5Aread(attr,H5Aget_type(attr),&sepkern->x0);
+    
+    // Check that it has the expected format
+    hsize_t dims[4];
+    if (H5Sget_simple_extent_ndims(H5Dget_space(dset)) != 2 ||
+        H5Tget_size(H5Dget_type(dset)) != sizeof(double) ||
+        H5Sget_simple_extent_dims(H5Dget_space(dset), dims, NULL) < 0) {
+
+        fprintf(stderr, "'sepkern/kern' dataset has wrong format in file %s!\n", filename);
+        H5Dclose(dset);
+        H5Fclose(sepkern_f);
+        return 1;
+    }
+
+    // Read dimensions
+    sepkern->oversampling = dims[1];
+    sepkern->size = dims[0];
+
+    // Read kernel
+    hsize_t total_size = sepkern->oversampling * sepkern->size;
+    cudaError_t err = cudaMallocManaged((void**)&sepkern->data, total_size * sizeof(double _Complex), cudaMemAttachGlobal);
+    if (H5Dread(dset, H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL, H5P_DEFAULT, sepkern->data) < 0) {
+        fprintf(stderr, "Failed to read separable kernel data from %s!\n", filename);
+        H5Dclose(dset);
+        H5Fclose(sepkern_f);
+        return 1;
+    }
+
+    // Close file
+    H5Dclose(dset);
+    H5Fclose(sepkern_f);
+
+    printf("seperable kernel: support %d (x%d oversampled)\n",
+           sepkern->size, sepkern->oversampling);
+
+    return 0;
+}
+ 
 
 
 #ifdef VAR_W_KERN
