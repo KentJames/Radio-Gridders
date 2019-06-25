@@ -227,6 +227,43 @@ static inline std::vector<double> generate_random_visibilities_(double theta,
     return vis;
 }
 
+static inline std::vector<double> generate_random_visibilities_1D_uv(double theta,
+							      double lambda,
+							      int npts){
+
+    
+    std::vector<double> vis(npts, 0.0);
+    auto seed = std::chrono::system_clock::now().time_since_epoch().count();
+    std::default_random_engine generator;
+    generator.seed(seed);
+    std::uniform_real_distribution<double> distribution(-theta*lambda/2,theta*lambda/2);
+   
+    for(int i = 0; i < npts; ++i){	
+	vis[i] = distribution(generator);
+    }
+
+    return vis;
+}
+
+static inline std::vector<double> generate_random_visibilities_1D_w(double theta,
+							      double lambda,
+							      double dw,
+							      int npts){
+
+    
+    std::vector<double> vis(npts, 0.0);
+    auto seed = std::chrono::system_clock::now().time_since_epoch().count();
+    std::default_random_engine generator;
+    generator.seed(seed);
+    std::uniform_real_distribution<double> distribution_w(-dw,dw);
+   
+    for(int i = 0; i < npts; ++i){	
+	vis[i] = distribution_w(generator);
+    }
+
+    return vis;
+}
+
 
 
 static inline std::vector<std::vector<double>> generate_line_visibilities(double theta,

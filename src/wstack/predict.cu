@@ -5,6 +5,7 @@
 #include <cassert>
 #include <complex>
 #include <algorithm>
+#include <chrono>
 
 //CUDA Includes
 #include <cuComplex.h>
@@ -40,7 +41,7 @@ __device__ float cuda_ceil(float x){ return ceilf(x);}
 __device__ double cuda_fabs(double x){ return fabs(x);}
 __device__ float cuda_fabs(float x){ return fabsf(x);}
 
-#define VIS_ACCUM_PER 64 // Accumulate X visibilities at a time. 
+#define VIS_ACCUM_PER 16384 // Accumulate X visibilities at a time. 
 template <typename FloatType>
 __global__ void test_3D(thrust::complex<FloatType> *vis,
 			std::size_t vis_num){
@@ -612,20 +613,22 @@ __host__ std::vector<std::complex<double>> wstack_predict_cu_3D(double theta,
     	<<< dimGrid, dimBlock >>>
     	((thrust::complex<double>*)thrust::raw_pointer_cast(wtransfer_d.data()),
     	oversampg);
+    cudaError_check(cudaPeekAtLastError());
     fft_shift_kernel <thrust::complex<double>>
     	<<< dimGrid, dimBlock >>>
     	((thrust::complex<double>*)thrust::raw_pointer_cast(skyp_d.data()),
     	 oversampg);
-    
-     fresnel_sky_mul <double>
+    cudaError_check(cudaPeekAtLastError());
+    fresnel_sky_mul <double>
       	<<< dimGrid, dimBlock >>>
        	((thrust::complex<double>*)thrust::raw_pointer_cast(skyp_d.data()),
        	 (thrust::complex<double>*)thrust::raw_pointer_cast(wtransfer_d.data()),
        	 oversampg,
        	 -w_planes/2);
-
-    std::cout << "Starting W-Stacking..." << std::flush;
+    cudaError_check(cudaPeekAtLastError());
     
+    std::cout << "Starting W-Stacking..." << std::flush;
+    std::chrono::high_resolution_clock::time_point t1_ws = std::chrono::high_resolution_clock::now();
     for (int wplane = 0; wplane < w_planes; ++wplane){
 
     	cuFFTError_check(cufftExecZ2Z(plan,
@@ -636,14 +639,14 @@ __host__ std::vector<std::complex<double>> wstack_predict_cu_3D(double theta,
     	    <<< dimGrid, dimBlock >>>
     	    ((thrust::complex<double>*)thrust::raw_pointer_cast(&wstacks.data()[wplane * oversampg * oversampg]),
     	     oversampg);
-	
+	cudaError_check(cudaPeekAtLastError());
 	fresnel_sky_mul <double>
 	    <<< dimGrid, dimBlock >>>
 	    ((thrust::complex<double>*)thrust::raw_pointer_cast(skyp_d.data()),
 	     (thrust::complex<double>*)thrust::raw_pointer_cast(wtransfer_d.data()),
 	     oversampg,
 	     1);
-
+	cudaError_check(cudaPeekAtLastError());
 	
     }
 
@@ -672,14 +675,17 @@ __host__ std::vector<std::complex<double>> wstack_predict_cu_3D(double theta,
     // std::cout << "W Conv Oversampling: " << grid_conv_w->oversampling << "\n";
     // std::cout << "W Planes: " << w_planes << "\n";
     // std::cout << "Oversampg: " << oversampg << "\n";
-    
     cudaError_check(cudaDeviceSynchronize());
+    std::chrono::high_resolution_clock::time_point t2_ws = std::chrono::high_resolution_clock::now();
+    auto duration_ws = std::chrono::duration_cast<std::chrono::milliseconds>( t2_ws - t1_ws ).count();
+    
+    std::cout << "W-Stack Time: " << duration_ws << "ms \n";
     std::cout << "done\n";
     std::cout << "Predicting visibilities..." << std::flush;
 
     //thrust::complex<double> *wstacks_pc = thrust::raw_pointer_cast(wstacks.data());
     //thrust::complex<double> *visibilities_pc = thrust::raw_pointer_cast(visibilities_d.data())
-    
+    std::chrono::high_resolution_clock::time_point t1_conv = std::chrono::high_resolution_clock::now();
     deconvolve_3D <double> <<< 32, VIS_ACCUM_PER/32 >>>
     	((thrust::complex<double> *)thrust::raw_pointer_cast(wstacks.data()),
     	 (thrust::complex<double> *)thrust::raw_pointer_cast(visibilities_d.data()),
@@ -700,8 +706,13 @@ __host__ std::vector<std::complex<double>> wstack_predict_cu_3D(double theta,
     // test_3D <double> <<< 32, VIS_ACCUM_PER/32 >>>
     // 	((thrust::complex<double> *)thrust::raw_pointer_cast(visibilities_d.data()),
     // 	 u.size());
-    std::cout << "done\n";
     cudaError_check(cudaDeviceSynchronize());
+    std::chrono::high_resolution_clock::time_point t2_conv = std::chrono::high_resolution_clock::now();
+    auto duration_conv = std::chrono::duration_cast<std::chrono::milliseconds>( t2_conv - t1_conv ).count();
+    std::cout << "Visibility Predict Time: " << duration_conv << "ms \n";
+    std::cout << "done\n";
+
+    
     
     thrust::host_vector<thrust::complex<double> > visibilities_h = visibilities_d;
     //    std::cout << "Visibility test: " << visibilities_h[14] << " " << visibilities_h[132] << "\n";

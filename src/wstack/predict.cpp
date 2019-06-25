@@ -502,7 +502,7 @@ std::vector<std::complex<double>> wstack_predict(double theta,
     std::chrono::high_resolution_clock::time_point t2_ws = std::chrono::high_resolution_clock::now();
     auto duration_ws = std::chrono::duration_cast<std::chrono::milliseconds>( t2_ws - t1_ws ).count();
     
-    std::cout << "W-Stack Time: " << duration_ws << "ms \n";;
+    std::cout << "W-Stack Time: " << duration_ws << "ms \n";
    
 
     std::vector<std::complex<double> > visibilities(uvwvec.size()/3,{0.0,0.0});

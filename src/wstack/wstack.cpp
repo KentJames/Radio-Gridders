@@ -102,7 +102,8 @@ int main(int argc, char **argv) {
     double theta = false;
     double lambda = false;
     int mode = 0;
-    int npts = 0; 
+    int npts = 0;
+    int random_points = 0;
     double pu, pv, pw;
     pu = pv = pw = 0;
 
@@ -137,6 +138,12 @@ int main(int argc, char **argv) {
     if(checkCmdLineFlag(argc, (const char**) argv, "npts")){
 	npts = getCmdLineArgumentInt(argc, (const char **) argv, "npts");
     }
+
+    if(checkCmdLineFlag(argc, (const char**) argv, "random_points")){
+        random_points = getCmdLineArgumentInt(argc, (const char **) argv, "random_points");
+    }
+
+    
 
     if (checkCmdLineFlag(argc, (const char **) argv, "sepkern_uv") == 0){
 
@@ -274,14 +281,29 @@ int main(int argc, char **argv) {
 	std::vector<std::complex<double>> visq;
 	std::vector<std::complex<double>>  vis;
 	std::vector<double> points = generate_testcard_dataset(theta);
+	
+ 	std::vector<double> uvec;
+	std::vector<double> vvec;
+	std::vector<double> wvec;
+	std::vector<double> uvwvec(3*npts,0.0);;
+	std::cout << "Rand points: " << random_points << "\n";
+	if(random_points == 0){
 
+	    uvec.resize(npts);
+	    std::fill(uvec.begin(), uvec.end(),pu);
 
-	// STOP GAP Measure. 
-	std::vector<double> uvec(npts,pu);
-	std::vector<double> vvec(npts,pv);
-	std::vector<double> wvec(npts,pw);
-	std::vector<double> uvwvec(3*npts,0.0);
+	    vvec.resize(npts);
+	    std::fill(vvec.begin(), vvec.end(),pv);
 
+	    wvec.resize(npts);
+	    std::fill(wvec.begin(), wvec.end(),pw);
+	    
+	} else { 
+	    uvec = generate_random_visibilities_1D_uv(theta,lambda,npts);
+	    vvec = generate_random_visibilities_1D_uv(theta,lambda,npts);
+	    wvec = generate_random_visibilities_1D_w(theta,lambda,dw,npts);
+	    
+	}
 	
 	for (std::size_t i = 0; i < uvec.size(); ++i){
 	    uvwvec[3*i + 0] = uvec[i];
