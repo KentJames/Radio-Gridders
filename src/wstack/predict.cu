@@ -41,7 +41,7 @@ __device__ float cuda_ceil(float x){ return ceilf(x);}
 __device__ double cuda_fabs(double x){ return fabs(x);}
 __device__ float cuda_fabs(float x){ return fabsf(x);}
 
-#define VIS_ACCUM_PER 16384 // Accumulate X visibilities at a time. 
+#define VIS_ACCUM_PER 8192 // Accumulate X visibilities at a time. 
 template <typename FloatType>
 __global__ void test_3D(thrust::complex<FloatType> *vis,
 			std::size_t vis_num){
@@ -54,12 +54,161 @@ __global__ void test_3D(thrust::complex<FloatType> *vis,
 
 }
 
+//#define TOTAL_WARPS 10
+#define ILP 16
+template <typename FloatType>
+__global__ void deconvolve_3D_wp(thrust::complex<FloatType> *wstacks,
+			      thrust::complex<FloatType> *vis,
+			      FloatType *uvec,
+			      FloatType *vvec,
+			      FloatType *wvec,
+			      FloatType *gcf_uv,
+			      FloatType *gcf_w,
+			      FloatType du,
+			      FloatType dw,
+			      int vis_num,
+			      int aa_support_uv,
+			      int aa_support_w,
+			      int oversampling,
+			      int oversampling_w,
+			      int w_planes,
+			      int grid_size,
+			      int oversampg){
+
+    
+    const int aa_h = aa_support_uv/2;
+    const int aaw_h = aa_support_w/2;
+
+    
+    // Warp Information
+    
+    const int warp_total = blockDim.x / 32;
+    const int warp_idx = threadIdx.x / 32;
+    const int lane_idx = threadIdx.x % 32;
+    
+    // Shared memory
+    extern __shared__ char array[];
+
+    // Offset for each warp in the u/v/w vectors
+    const unsigned int uvw_offset = ILP*(blockIdx.x * warp_total + warp_idx);
+
+    // Shared memory start point for each warp.
+    FloatType *mem_start = (FloatType*)array + warp_idx *
+	(aa_support_uv * aa_support_uv * aa_support_w * 2 +
+	 (aa_support_uv + aa_support_uv + aa_support_w)); 
+    
+    // Start pointer for the saved grid values
+    thrust::complex<FloatType> *grid_space = reinterpret_cast<thrust::complex<FloatType>*>
+	(mem_start + (aa_support_uv + aa_support_uv + aa_support_w));
+
+    FloatType* u_start = mem_start;
+    FloatType* v_start = mem_start + aa_support_uv;
+    FloatType* w_start = mem_start + aa_support_uv + aa_support_uv;
+
+    
+    for(int i = 0; i < ILP; ++i){
+	FloatType u = uvec[uvw_offset + i];
+	FloatType v = vvec[uvw_offset + i];
+	FloatType w = wvec[uvw_offset + i];
+
+	FloatType flu = u - cuda_ceil(u/du)*du;
+	FloatType flv = v - cuda_ceil(v/du)*du;
+	FloatType flw = w - cuda_ceil(w/dw)*dw;
+
+	int ovu = static_cast<int>(cuda_floor(cuda_fabs(flu)/du * oversampling));
+	int ovv = static_cast<int>(cuda_floor(cuda_fabs(flv)/du * oversampling));
+        int ovw = static_cast<int>(cuda_floor(cuda_fabs(flw)/dw * oversampling_w));
+	
+	
+	if(lane_idx == 0){
+	    // Load Kernel Values into Shared Memory
+	    for(int ul = 0; ul < aa_support_uv; ++ul){
+		int aas_u = aa_support_uv * ovu + ul;
+		u_start[ul] = gcf_uv[aas_u];
+	    }
+	    for(int vl = 0; vl < aa_support_uv; ++vl){
+	    	int aas_v = aa_support_uv * ovv + vl;
+	    	v_start[vl] = gcf_uv[aas_v];
+	    }
+	    for(int wl = 0; wl < aa_support_w; ++wl){
+	    	int aas_w = aa_support_w * ovw + wl;
+	    	w_start[wl] = gcf_w[aas_w];
+	    }
+
+	    // Load Grid Values into Shared Memory
+	    for(int wl = 0; wl < aa_support_w; ++wl){
+	    	int dws = static_cast<int>(cuda_ceil(w/dw)) + w_planes/2 - aaw_h + wl;
+	    	int wgsc = wl * aa_support_uv * aa_support_uv;
+	    	int wsc = dws * oversampg * oversampg;
+	
+	    	for(int vl = 0; vl < aa_support_uv; ++vl){
+	    	    int dvs = static_cast<int>(cuda_floor(v/du)) + grid_size + vl - aa_h;
+	    	    int vgdc = vl * aa_support_uv;
+
+	    	    for(int ul = 0; ul < aa_support_uv; ++ul){
+	    		int dus = static_cast<int>(cuda_floor(u/du)) + grid_size + ul - aa_h;
+	    		grid_space[wgsc + vl * aa_support_uv + ul] = wstacks[wsc + dvs * oversampg + dus];	
+	    	    }
+	    	}
+	    }
+	}
+
+	__syncwarp(); // Synchronise  warp before starting computation
+	
+
+	/* 
+	   COMPUTATION: Each thread in the warp accumulates a certain number of contributions to
+	   the grid point. The number is dependent on the size of the overall 3D convolution 
+	   relative to the warp size. 
+
+	   Larger convolutions are probably more efficient this way.
+
+	   After this per-thread accumulation, a shuffle down operation is performed across the
+	   warp.
+
+	 */
+	
+	// This defines how many grid points each thread in a warp adds up before we do the shuffle.
+	unsigned int granularity = (aa_support_uv * aa_support_uv * aa_support_w)/32; // We check before the kernel that there is no remainder.
+	unsigned int lane_start = lane_idx * granularity;	
+	thrust::complex<FloatType> value = {0.0,0.0};
+
+	for(unsigned int j = 0; j < granularity; ++j){
+	    unsigned int gpa = lane_start + j;
+	    unsigned int w_c = gpa / (aa_support_uv * aa_support_uv);
+	    unsigned int v_c = (gpa / aa_support_uv) % aa_support_uv; // There must be a better way of doing this..
+	    unsigned int u_c = gpa % aa_support_uv;
+
+	    //thrust::complex<FloatType> grid = {1.0,0.0};
+	    thrust::complex<FloatType> grid = grid_space[gpa];
+	    FloatType conv_value = 1.0 * w_start[w_c] * v_start[v_c] * u_start[u_c];
+	    value += grid * conv_value;// * conv_value;
+	}
+	FloatType realn = value.real();
+	FloatType imagn = value.imag();
+	__syncwarp(); // Synchronise warp before reduction.
+
+	// Warp shuffle reduction
+	for(int offset = 16; offset > 0; offset /= 2){
+	    realn += __shfl_down_sync(0xFFFFFFFF,realn,offset);
+	    imagn += __shfl_down_sync(0xFFFFFFFF,imagn,offset);
+	}
+	__syncthreads();
+
+	// TODO: Re-order this kernel to make this write coalesced with the other warps in the thread-block.
+	thrust::complex<FloatType> gridval = {realn, imagn};
+	if(lane_idx == 0){
+	    vis[uvw_offset + i] = gridval;
+	}
+    }
+    
+    
+}
 
 
 template <typename FloatType>
 __global__ void deconvolve_3D(thrust::complex<FloatType> *wstacks,
 			      thrust::complex<FloatType> *vis,
-
 			      FloatType *uvec,
 			      FloatType *vvec,
 			      FloatType *wvec,
@@ -77,13 +226,14 @@ __global__ void deconvolve_3D(thrust::complex<FloatType> *wstacks,
 			      int oversampg){
 
 
-    int x = blockIdx.x * blockDim.x + threadIdx.x;
-
+    const int x = ILP*(blockIdx.x * blockDim.x + threadIdx.x);
+    if(x+ILP >= vis_num) return;
       
-    int aa_h = aa_support_uv/2;
-    int aaw_h = aa_support_w/2;
+    const int aa_h = aa_support_uv/2;
+    const int aaw_h = aa_support_w/2;
 
-    for(int i = 0; i < vis_num; i+= VIS_ACCUM_PER){
+    //#pragma unroll 4
+    for(int i = 0; i < ILP; i++){
 
 	if (i+x > vis_num) continue;
 	FloatType u = uvec[i+x];
@@ -98,30 +248,34 @@ __global__ void deconvolve_3D(thrust::complex<FloatType> *wstacks,
 	int ovv = static_cast<int>(cuda_floor(cuda_fabs(flv)/du * oversampling));
         int ovw = static_cast<int>(cuda_floor(cuda_fabs(flw)/dw * oversampling_w));
 
-	vis[i+x] = 0.0; // Just make sure
+	thrust::complex<FloatType> vis_accum = {0.0,0.0};
+	//#pragma unroll 4
 	for(int dwi = -aaw_h; dwi < aaw_h; ++dwi){
 
 	    int dws = static_cast<int>(cuda_ceil(w/dw)) +
 		w_planes/2 + dwi;
 	    int aas_w = aa_support_w * ovw + (dwi + aaw_h);
 	    FloatType gridconv_w = gcf_w[aas_w];
-	
-	    for(int dvi = -aa_h; dvi < aa_h; ++dvi){
-		
-		int dvs = static_cast<int>(cuda_ceil(v/du)) + grid_size + dvi;
-	        int aas_v = aa_support_uv * ovv + (dvi + aa_h);
-		FloatType gridconv_vw = gridconv_w * gcf_uv[aas_v];
-	    
-		for(int dui = -aa_h; dui < aa_h; ++dui){
 
-		    int dus = static_cast<int>(cuda_ceil(u/du)) + grid_size + dui;
-		    int aas_u = aa_support_uv * ovu + (dui + aa_h);
-		    FloatType gridconv_uvw = gridconv_vw * gcf_uv[aas_u];
+	    //#pragma unroll 4
+	    for(int dui = -aa_h; dui < aa_h; ++dui){
+		int dus = static_cast<int>(cuda_ceil(u/du)) + grid_size + dui;
+		int aas_u = aa_support_uv * ovu + (dui + aa_h);
+		FloatType gridconv_uw = gridconv_w * gcf_uv[aas_u];
+		//#pragma unroll 4
+		for(int dvi = -aa_h; dvi < aa_h; ++dvi){
+		    
+		    int dvs = static_cast<int>(cuda_ceil(v/du)) + grid_size + dvi;
+		    int aas_v = aa_support_uv * ovv + (dvi + aa_h);
+		    FloatType gridconv_uvw = gridconv_uw * gcf_uv[aas_v];
 		    thrust::complex<FloatType> conv_point = wstacks[dws * oversampg * oversampg + dus * oversampg + dvs];
-		    vis[i+x] += (conv_point * gridconv_uvw);
+		    vis_accum += (conv_point * gridconv_uvw);
 		}
 	    }
 	}
+
+	
+	vis[i+x] = vis_accum;
 	
     }
 }
@@ -676,8 +830,10 @@ __host__ std::vector<std::complex<double>> wstack_predict_cu_3D(double theta,
     // std::cout << "W Planes: " << w_planes << "\n";
     // std::cout << "Oversampg: " << oversampg << "\n";
     cudaError_check(cudaDeviceSynchronize());
+
     std::chrono::high_resolution_clock::time_point t2_ws = std::chrono::high_resolution_clock::now();
     auto duration_ws = std::chrono::duration_cast<std::chrono::milliseconds>( t2_ws - t1_ws ).count();
+    unsigned int no_warps_per_block = 10;
     
     std::cout << "W-Stack Time: " << duration_ws << "ms \n";
     std::cout << "done\n";
@@ -686,7 +842,7 @@ __host__ std::vector<std::complex<double>> wstack_predict_cu_3D(double theta,
     //thrust::complex<double> *wstacks_pc = thrust::raw_pointer_cast(wstacks.data());
     //thrust::complex<double> *visibilities_pc = thrust::raw_pointer_cast(visibilities_d.data())
     std::chrono::high_resolution_clock::time_point t1_conv = std::chrono::high_resolution_clock::now();
-    deconvolve_3D <double> <<< 32, VIS_ACCUM_PER/32 >>>
+    deconvolve_3D<double> <<< 65536 , 32 >>>
     	((thrust::complex<double> *)thrust::raw_pointer_cast(wstacks.data()),
     	 (thrust::complex<double> *)thrust::raw_pointer_cast(visibilities_d.data()),
     	 (double *)thrust::raw_pointer_cast(uvec_d.data()),
@@ -702,14 +858,34 @@ __host__ std::vector<std::complex<double>> wstack_predict_cu_3D(double theta,
     	 grid_conv_w->oversampling,
     	 w_planes,
     	 grid_size,
-	 oversampg);
+    	 oversampg);
+    // deconvolve_3D_wp <double> <<< 65536 , no_warps_per_block*32 , 49152>>>
+    // 	((thrust::complex<double> *)thrust::raw_pointer_cast(wstacks.data()),
+    // 	 (thrust::complex<double> *)thrust::raw_pointer_cast(visibilities_d.data()),
+    // 	 (double *)thrust::raw_pointer_cast(uvec_d.data()),
+    // 	 (double *)thrust::raw_pointer_cast(vvec_d.data()),
+    // 	 (double *)thrust::raw_pointer_cast(wvec_d.data()),
+    // 	 (double *)thrust::raw_pointer_cast(gcf_uv_d.data()),
+    // 	 (double *)thrust::raw_pointer_cast(gcf_w_d.data()),
+    // 	 du, dw,
+    // 	 u.size(),
+    // 	 grid_conv_uv->size,
+    // 	 grid_conv_w->size,
+    // 	 grid_conv_uv->oversampling,
+    // 	 grid_conv_w->oversampling,
+    // 	 w_planes,
+    // 	 grid_size,
+    // 	 oversampg);
     // test_3D <double> <<< 32, VIS_ACCUM_PER/32 >>>
     // 	((thrust::complex<double> *)thrust::raw_pointer_cast(visibilities_d.data()),
     // 	 u.size());
     cudaError_check(cudaDeviceSynchronize());
+    double flops_t = u.size() * grid_conv_uv->size * grid_conv_uv->size * grid_conv_w->size * 9;
     std::chrono::high_resolution_clock::time_point t2_conv = std::chrono::high_resolution_clock::now();
-    auto duration_conv = std::chrono::duration_cast<std::chrono::milliseconds>( t2_conv - t1_conv ).count();
+    double duration_conv = std::chrono::duration_cast<std::chrono::milliseconds>( t2_conv - t1_conv ).count();
     std::cout << "Visibility Predict Time: " << duration_conv << "ms \n";
+    std::cout << "Visibility Predict FLOPS: " << flops_t << "\n";
+    std::cout << "Visibility Predict GFLOP/s: " << (flops_t/(duration_conv/1000)) << "\n";
     std::cout << "done\n";
 
     

@@ -364,8 +364,8 @@ int main(int argc, char **argv) {
 	std::cout << "Generating DFT visibilities for error calculation..." << std::flush;
 	visq = predict_visibility_quantized_vec(points,theta,lambda,uvwvec);
 	std::cout << "done\n";
-	std::cout << "Example Vis: " << vis[0] << "\n";
-	std::cout << "Example DFT Vis: " << visq[0] << "\n";
+	std::cout << "Example Vis: " << vis[987897] << "\n";
+	std::cout << "Example DFT Vis: " << visq[987897] << "\n";
 	
 	std::vector<double> error (visq.size(), 0.0);
 	std::transform(vis.begin(),vis.end(),visq.begin(),error.begin(),

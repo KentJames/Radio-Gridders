@@ -392,8 +392,6 @@ inline void memcpy_plane_to_stack(vector2D<std::complex<double>>&plane,
     std::memcpy(wp,pp,copy_size);
 
 }
-			   
-
 
 std::vector<std::complex<double>> wstack_predict(double theta,
 						 double lam,
