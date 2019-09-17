@@ -78,7 +78,6 @@ __global__ void deconvolve_3D_wp(thrust::complex<FloatType> *wstacks,
     
     const int aa_h = aa_support_uv/2;
     const int aaw_h = aa_support_w/2;
-
     
     // Warp Information
     
@@ -98,8 +97,8 @@ __global__ void deconvolve_3D_wp(thrust::complex<FloatType> *wstacks,
 	 (aa_support_uv + aa_support_uv + aa_support_w)); 
     
     // Start pointer for the saved grid values
-    thrust::complex<FloatType> *grid_space = reinterpret_cast<thrust::complex<FloatType>*>
-	(mem_start + (aa_support_uv + aa_support_uv + aa_support_w));
+    // thrust::complex<FloatType> *grid_space = reinterpret_cast<thrust::complex<FloatType>*>
+    // 	(mem_start + (aa_support_uv + aa_support_uv + aa_support_w));
 
     FloatType* u_start = mem_start;
     FloatType* v_start = mem_start + aa_support_uv;
@@ -135,22 +134,22 @@ __global__ void deconvolve_3D_wp(thrust::complex<FloatType> *wstacks,
 	    	w_start[wl] = gcf_w[aas_w];
 	    }
 
-	    // Load Grid Values into Shared Memory
-	    for(int wl = 0; wl < aa_support_w; ++wl){
-	    	int dws = static_cast<int>(cuda_ceil(w/dw)) + w_planes/2 - aaw_h + wl;
-	    	int wgsc = wl * aa_support_uv * aa_support_uv;
-	    	int wsc = dws * oversampg * oversampg;
+	    // // Load Grid Values into Shared Memory
+	    // for(int wl = 0; wl < aa_support_w; ++wl){
+	    // 	int dws = static_cast<int>(cuda_ceil(w/dw)) + w_planes/2 - aaw_h + wl;
+	    // 	int wgsc = wl * aa_support_uv * aa_support_uv;
+	    // 	int wsc = dws * oversampg * oversampg;
 	
-	    	for(int vl = 0; vl < aa_support_uv; ++vl){
-	    	    int dvs = static_cast<int>(cuda_floor(v/du)) + grid_size + vl - aa_h;
-	    	    int vgdc = vl * aa_support_uv;
+	    // 	for(int vl = 0; vl < aa_support_uv; ++vl){
+	    // 	    int dvs = static_cast<int>(cuda_floor(v/du)) + grid_size + vl - aa_h;
+	    // 	    int vgdc = vl * aa_support_uv;
 
-	    	    for(int ul = 0; ul < aa_support_uv; ++ul){
-	    		int dus = static_cast<int>(cuda_floor(u/du)) + grid_size + ul - aa_h;
-	    		grid_space[wgsc + vl * aa_support_uv + ul] = wstacks[wsc + dvs * oversampg + dus];	
-	    	    }
-	    	}
-	    }
+	    // 	    for(int ul = 0; ul < aa_support_uv; ++ul){
+	    // 		int dus = static_cast<int>(cuda_floor(u/du)) + grid_size + ul - aa_h;
+	    // 		grid_space[wgsc + vl * aa_support_uv + ul] = wstacks[wsc + dvs * oversampg + dus];	
+	    // 	    }
+	    // 	}
+	    // }
 	}
 
 	__syncwarp(); // Synchronise  warp before starting computation
@@ -179,8 +178,16 @@ __global__ void deconvolve_3D_wp(thrust::complex<FloatType> *wstacks,
 	    unsigned int v_c = (gpa / aa_support_uv) % aa_support_uv; // There must be a better way of doing this..
 	    unsigned int u_c = gpa % aa_support_uv;
 
+
+
+	    unsigned int w_grid = static_cast<int>(cuda_ceil(w/dw)) + w_planes/2 - aaw_h + w_c;
+	    unsigned int v_grid = static_cast<int>(cuda_ceil(v/du)) + grid_size + v_c - aa_h;
+	    unsigned int u_grid = static_cast<int>(cuda_ceil(u/du)) + grid_size + u_c - aa_h;
+ 
 	    //thrust::complex<FloatType> grid = {1.0,0.0};
-	    thrust::complex<FloatType> grid = grid_space[gpa];
+	    thrust::complex<FloatType> grid = wstacks[w_grid * oversampg * oversampg +
+						      v_grid * oversampg +
+						      u_grid];
 	    FloatType conv_value = 1.0 * w_start[w_c] * v_start[v_c] * u_start[u_c];
 	    value += grid * conv_value;// * conv_value;
 	}
@@ -196,10 +203,10 @@ __global__ void deconvolve_3D_wp(thrust::complex<FloatType> *wstacks,
 	__syncthreads();
 
 	// TODO: Re-order this kernel to make this write coalesced with the other warps in the thread-block.
-	thrust::complex<FloatType> gridval = {realn, imagn};
-	if(lane_idx == 0){
-	    vis[uvw_offset + i] = gridval;
-	}
+	// thrust::complex<FloatType> gridval = {realn, imagn};
+	// if(lane_idx == 0){
+	//     vis[uvw_offset + i] = gridval;
+	// }
     }
     
     
@@ -842,24 +849,7 @@ __host__ std::vector<std::complex<double>> wstack_predict_cu_3D(double theta,
     //thrust::complex<double> *wstacks_pc = thrust::raw_pointer_cast(wstacks.data());
     //thrust::complex<double> *visibilities_pc = thrust::raw_pointer_cast(visibilities_d.data())
     std::chrono::high_resolution_clock::time_point t1_conv = std::chrono::high_resolution_clock::now();
-    deconvolve_3D<double> <<< 65536 , 32 >>>
-    	((thrust::complex<double> *)thrust::raw_pointer_cast(wstacks.data()),
-    	 (thrust::complex<double> *)thrust::raw_pointer_cast(visibilities_d.data()),
-    	 (double *)thrust::raw_pointer_cast(uvec_d.data()),
-    	 (double *)thrust::raw_pointer_cast(vvec_d.data()),
-    	 (double *)thrust::raw_pointer_cast(wvec_d.data()),
-    	 (double *)thrust::raw_pointer_cast(gcf_uv_d.data()),
-    	 (double *)thrust::raw_pointer_cast(gcf_w_d.data()),
-    	 du, dw,
-    	 u.size(),
-    	 grid_conv_uv->size,
-    	 grid_conv_w->size,
-    	 grid_conv_uv->oversampling,
-    	 grid_conv_w->oversampling,
-    	 w_planes,
-    	 grid_size,
-    	 oversampg);
-    // deconvolve_3D_wp <double> <<< 65536 , no_warps_per_block*32 , 49152>>>
+    // deconvolve_3D<double> <<< 65536 , 32 >>>
     // 	((thrust::complex<double> *)thrust::raw_pointer_cast(wstacks.data()),
     // 	 (thrust::complex<double> *)thrust::raw_pointer_cast(visibilities_d.data()),
     // 	 (double *)thrust::raw_pointer_cast(uvec_d.data()),
@@ -876,6 +866,23 @@ __host__ std::vector<std::complex<double>> wstack_predict_cu_3D(double theta,
     // 	 w_planes,
     // 	 grid_size,
     // 	 oversampg);
+    deconvolve_3D_wp <double> <<< 65536 , no_warps_per_block*32 , 49152>>>
+    	((thrust::complex<double> *)thrust::raw_pointer_cast(wstacks.data()),
+    	 (thrust::complex<double> *)thrust::raw_pointer_cast(visibilities_d.data()),
+    	 (double *)thrust::raw_pointer_cast(uvec_d.data()),
+    	 (double *)thrust::raw_pointer_cast(vvec_d.data()),
+    	 (double *)thrust::raw_pointer_cast(wvec_d.data()),
+    	 (double *)thrust::raw_pointer_cast(gcf_uv_d.data()),
+    	 (double *)thrust::raw_pointer_cast(gcf_w_d.data()),
+    	 du, dw,
+    	 u.size(),
+    	 grid_conv_uv->size,
+    	 grid_conv_w->size,
+    	 grid_conv_uv->oversampling,
+    	 grid_conv_w->oversampling,
+    	 w_planes,
+    	 grid_size,
+    	 oversampg);
     // test_3D <double> <<< 32, VIS_ACCUM_PER/32 >>>
     // 	((thrust::complex<double> *)thrust::raw_pointer_cast(visibilities_d.data()),
     // 	 u.size());
