@@ -363,19 +363,25 @@ int main(int argc, char **argv) {
 	
 	std::cout << "Generating DFT visibilities for error calculation..." << std::flush;
 	visq = predict_visibility_quantized_vec(points,theta,lambda,uvwvec);
-	std::cout << "done\n";
-	std::cout << "Example Vis: " << vis[987897] << "\n";
-	std::cout << "Example DFT Vis: " << visq[987897] << "\n";
+	std::cout << "done\n" << std::flush;
+
 	
 	std::vector<double> error (visq.size(), 0.0);
 	std::transform(vis.begin(),vis.end(),visq.begin(),error.begin(),
 		       [npts](std::complex<double> wstack,
 			      std::complex<double> dft)
-		       -> double { return std::abs(dft-wstack)/npts;});
+		       -> double { return std::abs(dft-wstack);});
 
+	// for(int i = 0; i < 32; ++ i){
+	    
+	//     std::cout << "Example Vis: " << vis[256000 + i] << "\n" << std::flush;
+	//     std::cout << "Example DFT Vis: " << visq[256000 + i] << "\n" << std::flush;
+	//     std::cout << "Example Error: " << error[256000 + i] << "\n" << std::flush;
+	// }
 	//std::for_each(error.begin(), error.end(), [](const double n) { std::cout << n << " ";});
 	double agg_error = std::accumulate(error.begin(), error.end(),0.0);
-	std::cout << "Aggregate Error: " << agg_error/error.size()<<"\n";
+	std::cout << "Aggregate Error: " << agg_error<<"\n";
+	std::cout << "Aggregate Error / Npts: " << agg_error/error.size()<<"\n";
       
       
 
@@ -395,5 +401,14 @@ int main(int argc, char **argv) {
 	
 	return 0;
     }
+
+
+    free(sepkern_uv);
+    free(sepkern_w);
+    free(sepkern_lm);
+    free(sepkern_n);
+
+
+    
     return 0;
 }

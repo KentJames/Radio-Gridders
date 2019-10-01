@@ -92,12 +92,12 @@ std::vector<std::complex<double> > predict_visibility_quantized_vec(const std::v
 
     double grid_size = std::floor(theta * lam);
     
-    std::vector<std::complex<double> > vis (uvw.size(),{0.0,0.0});
+    std::vector<std::complex<double> > vis (uvw.size()/3,{0.0,0.0});
     std::size_t npts = points.size()/2;
 
 
     //#pragma omp parallel
-    for (std::size_t visi = 0; visi < uvw.size(); ++visi){
+    for (std::size_t visi = 0; visi < uvw.size()/3; ++visi){
 	
 	double u = uvw[3 * visi + 0];
 	double v = uvw[3 * visi + 1];
