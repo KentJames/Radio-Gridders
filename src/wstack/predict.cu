@@ -975,26 +975,46 @@ __host__ std::vector<std::complex<double>> wstack_predict_cu_3D(double theta,
 
     //thrust::complex<double> *wstacks_pc = thrust::raw_pointer_cast(wstacks.data());
     //thrust::complex<double> *visibilities_pc = thrust::raw_pointer_cast(visibilities_d.data())
+
+
+    
+    int number_of_blocks = u.size() / (WARPS_PER_BLOCK*ILP);
+    int fast_predict_size = number_of_blocks * WARPS_PER_BLOCK * ILP;
+    int slow_predict_size = u.size() - fast_predict_size;
+    std::cout << "Fast Predict Size: " << fast_predict_size << "\n";
+    std::cout << "Slow Predict Size: " << slow_predict_size << "\n";
     std::chrono::high_resolution_clock::time_point t1_conv = std::chrono::high_resolution_clock::now();
-    // deconvolve_3D<double> <<< 65536 , 32 >>>
-    // 	((thrust::complex<double> *)thrust::raw_pointer_cast(wstacks.data()),
-    // 	 (thrust::complex<double> *)thrust::raw_pointer_cast(visibilities_d.data()),
-    // 	 (double *)thrust::raw_pointer_cast(uvec_d.data()),
-    // 	 (double *)thrust::raw_pointer_cast(vvec_d.data()),
-    // 	 (double *)thrust::raw_pointer_cast(wvec_d.data()),
-    // 	 (double *)thrust::raw_pointer_cast(gcf_uv_d.data()),
-    // 	 (double *)thrust::raw_pointer_cast(gcf_w_d.data()),
-    // 	 du, dw,
-    // 	 u.size(),
-    // 	 grid_conv_uv->size,
-    // 	 grid_conv_w->size,
-    // 	 grid_conv_uv->oversampling,
-    // 	 grid_conv_w->oversampling,
-    // 	 w_planes,
-    // 	 grid_size,
-    // 	 oversampg);
+
+    /*
+      We convolve twice:
+      - First is with the fast optimised kernels. Each block does 
+        WARPS_PER_BLOCK * ILP visibilities. Thus there will some
+        remainder as npts can be any number.
+      - Second is a slow general purpose kernel for the remainder
+        number of visibilities, however as the remainder will be
+	less than WARPS_PER_BLOCK * ILP, it's not a major hit to
+        performance.
+     */
+
+        // deconvolve_3D<double> <<< 65536 , 32 >>>
+ 	// ((thrust::complex<double> *)thrust::raw_pointer_cast(wstacks.data()),
+    	//  (thrust::complex<double> *)thrust::raw_pointer_cast(visibilities_d.data()),
+    	//  (double *)thrust::raw_pointer_cast(uvec_d.data()),
+    	//  (double *)thrust::raw_pointer_cast(vvec_d.data()),
+    	//  (double *)thrust::raw_pointer_cast(wvec_d.data()),
+    	//  (double *)thrust::raw_pointer_cast(gcf_uv_d.data()),
+    	//  (double *)thrust::raw_pointer_cast(gcf_w_d.data()),
+    	//  du, dw,
+    	//  u.size(),
+    	//  grid_conv_uv->size,
+    	//  grid_conv_w->size,
+    	//  grid_conv_uv->oversampling,
+    	//  grid_conv_w->oversampling,
+    	//  w_planes,
+    	//  grid_size,
+    	//  oversampg);
     cudaFuncSetCacheConfig(deconvolve_3D_wp_2<double>, cudaFuncCachePreferL1);
-    deconvolve_3D_wp_2<double> <<< 29000 , WARPS_PER_BLOCK*32 , ILP * WARPS_PER_BLOCK * 16 >>>
+    deconvolve_3D_wp_2<double> <<< number_of_blocks, WARPS_PER_BLOCK*32 , ILP * WARPS_PER_BLOCK * 16 >>>
     	((thrust::complex<double> *)thrust::raw_pointer_cast(wstacks.data()),
     	 (thrust::complex<double> *)thrust::raw_pointer_cast(visibilities_d.data()),
     	 (double *)thrust::raw_pointer_cast(uvec_d.data()),
@@ -1011,6 +1031,30 @@ __host__ std::vector<std::complex<double>> wstack_predict_cu_3D(double theta,
     	 w_planes,
     	 grid_size,
     	 oversampg);
+    
+    if(slow_predict_size > 0){
+	
+    	deconvolve_3D<double> <<<  slow_predict_size / ILP , 1 >>>
+    	    ((thrust::complex<double> *)thrust::raw_pointer_cast(wstacks.data()),
+    	     (thrust::complex<double> *)thrust::raw_pointer_cast(visibilities_d.data()) + fast_predict_size,
+    	     (double *)thrust::raw_pointer_cast(uvec_d.data()) + fast_predict_size,
+    	     (double *)thrust::raw_pointer_cast(vvec_d.data()) + fast_predict_size,
+    	     (double *)thrust::raw_pointer_cast(wvec_d.data()) + fast_predict_size,
+    	     (double *)thrust::raw_pointer_cast(gcf_uv_d.data()),
+    	     (double *)thrust::raw_pointer_cast(gcf_w_d.data()),
+    	     du, dw,
+    	     slow_predict_size,
+    	     grid_conv_uv->size,
+    	     grid_conv_w->size,
+    	     grid_conv_uv->oversampling,
+    	     grid_conv_w->oversampling,
+    	     w_planes,
+    	     grid_size,
+    	     oversampg);
+
+    }
+
+    
     // test_3D <double> <<< 32, VIS_ACCUM_PER/32 >>>
     // 	((thrust::complex<double> *)thrust::raw_pointer_cast(visibilities_d.data()),
     // 	 u.size());
