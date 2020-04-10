@@ -3,7 +3,7 @@ CC = gcc
 CXX = g++
 
 override CXXFLAGS +=-std=c++11 -I../common -DCUDA_ACCELERATION
-override LDFLAGS += -L/data4/jkent/bifrost/lib -lhdf5 -lm -lcufft -lcublas -gencode arch=compute_52,code=sm_52 -L../common -lhdf5_cu -lcommon_kernels
+override LDFLAGS += -L/data4/jkent/bifrost/lib -lhdf5 -lm -lcufft -lcublas -L../common -lhdf5_cu -lcommon_kernels
 override CUDA_FLAGS += 
 
 BINDIR = ./

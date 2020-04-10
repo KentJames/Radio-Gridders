@@ -31,8 +31,13 @@ __device__ void scatter_grid_add(cuDoubleComplex *uvgrid, int grid_size, int gri
     return;
 
   // Add to grid. This is the bottleneck of the entire kernel
+#ifdef UNSAFE_WRITES
+  uvgrid[grid_point_u + grid_pitch*grid_point_v].x += sum.x
+  uvgrid[grid_point_u + grid_pitch*grid_point_v].y += sum.y
+#else
   atomicAdd(&uvgrid[grid_point_u + grid_pitch*grid_point_v].x, sum.x);
   atomicAdd(&uvgrid[grid_point_u + grid_pitch*grid_point_v].y, sum.y);
+#endif
 }
 
 //Scatters grid points from a non-hierarchical dataset.
@@ -580,19 +585,27 @@ __host__ cudaError_t wtowers_CUDA_flat(const char* visfile, const char* wkernfil
   cudaError_check(cudaMallocHost((void**)&vis_bins, sizeof(struct flat_vis_data) * total_chunks));
   cudaError_check(cudaMallocHost((void**)&vis_bins_w, sizeof(struct flat_vis_data) * total_chunks * wp_tot));
   flatten_visibilities_CUDA(vis_dat, flat_vis_dat);
+
+
   //  weight_flat((unsigned int *)gridh, grid_size, theta, flat_vis_dat);
   cudaError_check(cudaMemset(grid,0.0,total_gs * sizeof(cuDoubleComplex)));
+  cudaError_check(cudaDeviceSynchronize());
+  cudaError_check(cudaDeviceSynchronize());
+  
+  // Bins from flat_vis_dat t-> vis_bins
   bin_flat_uv_bins(vis_bins, flat_vis_dat, chunk_count_1d, wincrement, theta, grid_size, chunk_size, &wp_min, &wp_max);
   free_flat_visibilities_CUDAh(flat_vis_dat, 1);
-  bin_flat_w_vis(vis_bins, vis_bins_w, vis_w_max, vis_w_min, wincrement, chunk_count_1d);
-  //free_flat_visibilities_CUDAh(vis_bins, chunk_count_1d * chunk_count_1d);
-  struct flat_vis_data *flat_vis_dat_chunked;
-  cudaError_check(cudaMallocManaged((void **)&flat_vis_dat_chunked, sizeof(struct flat_vis_data) * total_chunks * wp_tot * vis_blocks));
   
+  // 
+  bin_flat_w_vis(vis_bins, vis_bins_w, vis_w_max, vis_w_min, wincrement, chunk_count_1d);
+  free_flat_visibilities_CUDAh(vis_bins, chunk_count_1d * chunk_count_1d);
+  struct flat_vis_data *flat_vis_dat_chunked;
+  cudaError_check(cudaMallocManaged((void **)&flat_vis_dat_chunked, sizeof(struct flat_vis_data) * total_chunks * wp_tot * vis_blocks,cudaMemAttachGlobal));
+  cudaError_check(cudaMemset(flat_vis_dat_chunked, 0, sizeof(struct flat_vis_data) * total_chunks * wp_tot * vis_blocks));
   for(int i = 0; i < total_chunks * wp_tot; ++i){
-    bin_flat_visibilities(flat_vis_dat_chunked+vis_blocks*i, vis_bins_w+i, vis_blocks);
+    bin_flat_visibilities(&flat_vis_dat_chunked[vis_blocks*i], vis_bins_w+i, vis_blocks);
   }  
-  //free_flat_visibilities_CUDAd(vis_bins_w, chunk_count_1d * chunk_count_1d * wp_tot);
+  free_flat_visibilities_CUDAh(vis_bins_w, chunk_count_1d * chunk_count_1d * wp_tot);
 
   //Create the fresnel interference pattern for the W-Dimension
   //Can make this a kernel.
@@ -684,8 +697,7 @@ __host__ cudaError_t wtowers_CUDA_flat(const char* visfile, const char* wkernfil
 
       int wp_zero = wp + abs(wp_min);
       struct flat_vis_data *binp = flat_vis_dat_chunked + chunk * wp_tot * vis_blocks + wp_zero * vis_blocks;
-      struct flat_vis_data *bincp = vis_bins_w + chunk * wp_tot + wp_zero;
-      //if(bincp->number_of_vis){ //If no visibilities on that particular floor just skip it.
+
 #ifdef __COUNT_VIS__
 	scatter_grid_kernel_flat <<< vis_blocks, 128, 0, streams[chunk] >>>
 	  (binp, wkern_dat, subgrids+subgrid_offset, wkern_size,
@@ -857,7 +869,7 @@ __host__ cudaError_t wproj_CUDA_flat(const char* visfile, const char* wkernfile,
   cudaError_check(cudaMemset(grid, 0, total_gs * sizeof(cuDoubleComplex)));
   std::cout << "Bin Data: \n";
   struct flat_vis_data *flat_vis_dat;
-  cudaError_check(cudaMallocHost((void**)&flat_vis_dat, sizeof(struct flat_vis_data)));
+  cudaError_check(cudaMallocManaged((void**)&flat_vis_dat, sizeof(struct flat_vis_data)));
 
   //Flatten the visibilities and weight them.
   flatten_visibilities_CUDA(vis_dat,flat_vis_dat);

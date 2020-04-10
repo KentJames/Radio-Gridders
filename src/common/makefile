@@ -1,7 +1,7 @@
 include ../../user.mk
 
 ifdef CUDA
-override NVCCFLAGS += -gencode arch=compute_50,code=sm_50
+override NVCCFLAGS += 
 endif
 override CXXFLAGS +=
 override LDFLAGS += 

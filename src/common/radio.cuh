@@ -365,22 +365,22 @@ __host__ inline void bin_flat_uv_bins(struct flat_vis_data *vis_bins,
   }
   
   //1b) Allocate memory
-
+  
   for(int cyi = 0; cyi< chunk_count; ++cyi){
     for(int cxi = 0; cxi< chunk_count; ++cxi){
       int nv = bin_chunk_count[cyi * chunk_count + cxi];
       std::cout<< "Vis count in chunk " << (cyi * chunk_count + cxi) << " : " << nv << "\n";
       
-      cudaError_check(cudaMallocManaged((void **)&vis_bins[cyi * chunk_count + cxi].u, nv * sizeof(double)));
-      cudaError_check(cudaMallocManaged((void **)&vis_bins[cyi * chunk_count + cxi].v, nv * sizeof(double)));
-      cudaError_check(cudaMallocManaged((void **)&vis_bins[cyi * chunk_count + cxi].w, nv * sizeof(double)));
-      cudaError_check(cudaMallocManaged((void **)&vis_bins[cyi * chunk_count + cxi].vis, nv * sizeof(double _Complex)));
+      cudaError_check(cudaMallocHost((void **)&vis_bins[cyi * chunk_count + cxi].u, nv * sizeof(double)));
+      cudaError_check(cudaMallocHost((void **)&vis_bins[cyi * chunk_count + cxi].v, nv * sizeof(double)));
+      cudaError_check(cudaMallocHost((void **)&vis_bins[cyi * chunk_count + cxi].w, nv * sizeof(double)));
+      cudaError_check(cudaMallocHost((void **)&vis_bins[cyi * chunk_count + cxi].vis, nv * sizeof(double _Complex)));
       }
   }
   //free(bin_chunk_count); //Cleanliness is godliness. 
   
-  //1c) Actually bin in memory.
-  // We can re-use our bin chunks counts.
+  //  1c) Actually bin in memory.
+  //  We can re-use our bin chunks counts.
 
   
   for(int vi = 0; vi< vis->number_of_vis; ++vi){
@@ -405,8 +405,10 @@ __host__ inline void bin_flat_uv_bins(struct flat_vis_data *vis_bins,
 
   for(int cyi = 0; cyi < chunk_count; ++cyi){
     for(int cxi = 0; cxi < chunk_count; ++cxi){
+
+	//std::cout << "Bin Count: " << vis_bins[cyi * chunk_count + cxi].number_of_vis << "Vis Bin Count: " << bin_chunk_count[cyi * chunk_count + cxi] << "\n"; 
       assert(vis_bins[cyi * chunk_count + cxi].number_of_vis ==
-	     bin_chunk_count[cyi * chunk_count + cxi]);
+  	     bin_chunk_count[cyi * chunk_count + cxi]);
     }
   }
   int total_vis = 0;
@@ -455,10 +457,10 @@ __host__ inline void bin_flat_w_vis(struct flat_vis_data *vis_bins, //Our (fille
       for(int wp = 0; wp < wp_tot; ++wp){
 	int bi = (cyi * (chunk_count * wp_tot)) + (cxi * wp_tot) + wp;
 	int nv = bin_chunk_count[bi];
-	cudaError_check(cudaMallocManaged((void **)&new_bins[bi].u, nv * sizeof(double)));
-	cudaError_check(cudaMallocManaged((void **)&new_bins[bi].v, nv * sizeof(double)));
-	cudaError_check(cudaMallocManaged((void **)&new_bins[bi].w, nv * sizeof(double)));
-	cudaError_check(cudaMallocManaged((void **)&new_bins[bi].vis, nv * sizeof(double _Complex)));
+	cudaError_check(cudaMallocHost((void **)&new_bins[bi].u, nv * sizeof(double)));
+	cudaError_check(cudaMallocHost((void **)&new_bins[bi].v, nv * sizeof(double)));
+	cudaError_check(cudaMallocHost((void **)&new_bins[bi].w, nv * sizeof(double)));
+	cudaError_check(cudaMallocHost((void **)&new_bins[bi].vis, nv * sizeof(double _Complex)));
 	new_bins[bi].number_of_vis = 0;
       }
     }
@@ -506,6 +508,7 @@ __host__ inline void bin_flat_visibilities(struct flat_vis_data *vis_bins,
   int vis_per_block = vis->number_of_vis / blocks;
   int leftovers = vis->number_of_vis % blocks;
   int i;
+
   for(i = 0; i < blocks-1; ++i){
     
     cudaError_check(cudaMallocManaged((void**)&(vis_bins+i)->u,
