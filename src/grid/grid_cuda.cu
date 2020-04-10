@@ -32,8 +32,8 @@ __device__ void scatter_grid_add(cuDoubleComplex *uvgrid, int grid_size, int gri
 
   // Add to grid. This is the bottleneck of the entire kernel
 #ifdef UNSAFE_WRITES
-  uvgrid[grid_point_u + grid_pitch*grid_point_v].x += sum.x
-  uvgrid[grid_point_u + grid_pitch*grid_point_v].y += sum.y
+  uvgrid[grid_point_u + grid_pitch*grid_point_v].x += sum.x;
+  uvgrid[grid_point_u + grid_pitch*grid_point_v].y += sum.y;
 #else
   atomicAdd(&uvgrid[grid_point_u + grid_pitch*grid_point_v].x, sum.x);
   atomicAdd(&uvgrid[grid_point_u + grid_pitch*grid_point_v].y, sum.y);
@@ -71,12 +71,13 @@ __device__ void scatter_grid_point_flat(struct flat_vis_data *vis, // Our bins o
 					double offset_v, // ^^^^
 					double offset_w){ 
 #endif
-  
+
+  if(vis->number_of_vis == 0){ return;}
   int grid_point_u = myU, grid_point_v = myV;
   cuDoubleComplex sum  = make_cuDoubleComplex(0.0,0.0);
   int supp = wkern->size_x;
   int vi = 0;
-  if(vis->number_of_vis == 0){ return;}
+  
   for (vi = 0; vi < vis->number_of_vis; ++vi){
 
     double w = vis->w[vi] - offset_w;
