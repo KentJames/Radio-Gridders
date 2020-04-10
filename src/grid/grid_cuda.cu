@@ -76,7 +76,7 @@ __device__ void scatter_grid_point_flat(struct flat_vis_data *vis, // Our bins o
   cuDoubleComplex sum  = make_cuDoubleComplex(0.0,0.0);
   int supp = wkern->size_x;
   int vi = 0;
-  
+  if(vis->number_of_vis == 0){ return;}
   for (vi = 0; vi < vis->number_of_vis; ++vi){
 
     double w = vis->w[vi] - offset_w;
@@ -600,10 +600,10 @@ __host__ cudaError_t wtowers_CUDA_flat(const char* visfile, const char* wkernfil
   bin_flat_w_vis(vis_bins, vis_bins_w, vis_w_max, vis_w_min, wincrement, chunk_count_1d);
   free_flat_visibilities_CUDAh(vis_bins, chunk_count_1d * chunk_count_1d);
   struct flat_vis_data *flat_vis_dat_chunked;
-  cudaError_check(cudaMallocManaged((void **)&flat_vis_dat_chunked, sizeof(struct flat_vis_data) * total_chunks * wp_tot * vis_blocks,cudaMemAttachGlobal));
+  cudaError_check(cudaMallocManaged((void **)&flat_vis_dat_chunked, sizeof(struct flat_vis_data) * total_chunks * wp_tot * vis_blocks,cudaMemAttachGlobal));	  
   cudaError_check(cudaMemset(flat_vis_dat_chunked, 0, sizeof(struct flat_vis_data) * total_chunks * wp_tot * vis_blocks));
   for(int i = 0; i < total_chunks * wp_tot; ++i){
-    bin_flat_visibilities(&flat_vis_dat_chunked[vis_blocks*i], vis_bins_w+i, vis_blocks);
+      bin_flat_visibilities(flat_vis_dat_chunked + vis_blocks * i, vis_bins_w + i, vis_blocks);
   }  
   free_flat_visibilities_CUDAh(vis_bins_w, chunk_count_1d * chunk_count_1d * wp_tot);
 

@@ -501,61 +501,91 @@ __host__ inline void bin_flat_w_vis(struct flat_vis_data *vis_bins, //Our (fille
 
 //Splits our visibilities up into contiguous bins, for each block to apply.
 //This is the final step and allows the GPU to work effectively on the data.
-__host__ inline void bin_flat_visibilities(struct flat_vis_data *vis_bins,
+__host__ static inline void bin_flat_visibilities(struct flat_vis_data *vis_bins,
 					   struct flat_vis_data *vis,
 					   int blocks){
 
   int vis_per_block = vis->number_of_vis / blocks;
   int leftovers = vis->number_of_vis % blocks;
   int i;
+  //if(vis_per_block == 0) vis_per_block=1;
 
   for(i = 0; i < blocks-1; ++i){
-    
-    cudaError_check(cudaMallocManaged((void**)&(vis_bins+i)->u,
-				      sizeof(double) * vis_per_block, cudaMemAttachGlobal));
-    cudaError_check(cudaMallocManaged((void**)&(vis_bins+i)->v,
-				      sizeof(double) * vis_per_block, cudaMemAttachGlobal));
-    cudaError_check(cudaMallocManaged((void**)&(vis_bins+i)->w,
-				      sizeof(double) * vis_per_block, cudaMemAttachGlobal));
-    cudaError_check(cudaMallocManaged((void**)&(vis_bins+i)->vis,
-				      sizeof(double _Complex) * vis_per_block, cudaMemAttachGlobal));
+
+      if(vis_per_block > 0){
+	  cudaError_check(cudaMallocManaged((void**)&(vis_bins[i].u),
+					    sizeof(double) * vis_per_block, cudaMemAttachGlobal));
+	  cudaError_check(cudaMallocManaged((void**)&(vis_bins[i].v),
+					    sizeof(double) * vis_per_block, cudaMemAttachGlobal));
+	  cudaError_check(cudaMallocManaged((void**)&(vis_bins[i].w),
+					    sizeof(double) * vis_per_block, cudaMemAttachGlobal));
+	  cudaError_check(cudaMallocManaged((void**)&(vis_bins[i].vis),
+					    sizeof(double _Complex) * vis_per_block, cudaMemAttachGlobal));
 
 
-    cudaError_check(cudaMemcpy((vis_bins+i)->u, vis->u + vis_per_block * i,
-			       sizeof(double) * vis_per_block, cudaMemcpyDefault));
-    cudaError_check(cudaMemcpy((vis_bins+i)->v, vis->v + vis_per_block * i,
-			       sizeof(double) * vis_per_block, cudaMemcpyDefault));
-    cudaError_check(cudaMemcpy((vis_bins+i)->w, vis->w + vis_per_block * i,
-			       sizeof(double) * vis_per_block, cudaMemcpyDefault));
-    cudaError_check(cudaMemcpy((vis_bins+i)->vis, vis->vis + vis_per_block * i,
-			       sizeof(double _Complex) * vis_per_block, cudaMemcpyDefault));
-    (vis_bins+i)->number_of_vis = vis_per_block;
+
+
+	  for(int visi = 0; visi < vis_per_block; ++visi){
+
+	      vis_bins[i].u[visi] = vis->u[vis_per_block * i + visi];
+	      vis_bins[i].v[visi] = vis->v[vis_per_block * i + visi];
+	      vis_bins[i].w[visi] = vis->w[vis_per_block * i + visi];
+	      vis_bins[i].vis[visi] = vis->vis[vis_per_block * i + visi];
+	      
+	  }
+
+
+	  
+	  // double *ps = vis->u[vis_per_block*i];
+	  // double *pd = vis_bins[i].u;
+	  // cudaError_check(cudaMemcpy(pd, ps,sizeof(double) * 100, cudaMemcpyDefault));
+
+	  // cudaError_check(cudaMemcpy(vis_bins[i].u, &vis->u[vis_per_block * i],
+	  // 			     sizeof(double) * vis_per_block, cudaMemcpyDefault));
+	  // cudaError_check(cudaMemcpy((vis_bins+i)->v, vis->v + vis_per_block * i,
+	  // 			     sizeof(double) * vis_per_block, cudaMemcpyDefault));
+	  // cudaError_check(cudaMemcpy((vis_bins+i)->w, vis->w + vis_per_block * i,
+	  // 			     sizeof(double) * vis_per_block, cudaMemcpyDefault));
+	  // cudaError_check(cudaMemcpy((vis_bins+i)->vis, vis->vis + vis_per_block * i,
+	  // 			     sizeof(double _Complex) * vis_per_block, cudaMemcpyDefault));
+	  
+      }
+      vis_bins[i].number_of_vis = vis_per_block;
   }
   
   //Last one gets remainders.
 
+  if((vis_per_block + leftovers) > 0){
+      cudaError_check(cudaMallocManaged((void**)&(vis_bins[i].u),
+					sizeof(double) * (vis_per_block + leftovers), cudaMemAttachGlobal));
+      cudaError_check(cudaMallocManaged((void**)&(vis_bins[i].v),
+					sizeof(double) * (vis_per_block + leftovers), cudaMemAttachGlobal));
+      cudaError_check(cudaMallocManaged((void**)&(vis_bins[i].w),
+					sizeof(double) * (vis_per_block + leftovers), cudaMemAttachGlobal));
+      cudaError_check(cudaMallocManaged((void**)&(vis_bins[i].vis),
+					sizeof(double _Complex) * (vis_per_block + leftovers), cudaMemAttachGlobal));
+      
+      for(int visi = 0; visi < (vis_per_block+leftovers); ++visi){
 
-  cudaError_check(cudaMallocManaged((void**)&(vis_bins+i)->u,
-				    sizeof(double) * (vis_per_block + leftovers), cudaMemAttachGlobal));
-  cudaError_check(cudaMallocManaged((void**)&(vis_bins+i)->v,
-				    sizeof(double) * (vis_per_block + leftovers), cudaMemAttachGlobal));
-  cudaError_check(cudaMallocManaged((void**)&(vis_bins+i)->w,
-				    sizeof(double) * (vis_per_block + leftovers), cudaMemAttachGlobal));
-  cudaError_check(cudaMallocManaged((void**)&(vis_bins+i)->vis,
-				    sizeof(double _Complex) * (vis_per_block + leftovers), cudaMemAttachGlobal));
-    
+	      vis_bins[i].u[visi] = vis->u[vis_per_block * i + visi];
+	      vis_bins[i].v[visi] = vis->v[vis_per_block * i + visi];
+	      vis_bins[i].w[visi] = vis->w[vis_per_block * i + visi];
+	      vis_bins[i].vis[visi] = vis->vis[vis_per_block * i + visi];
+	      
+      }
 
-  
-  cudaError_check(cudaMemcpy((vis_bins+i)->u, vis->u + vis_per_block * i,
-			     sizeof(double) * (vis_per_block+leftovers), cudaMemcpyDefault));
-  cudaError_check(cudaMemcpy((vis_bins+i)->v, vis->v + vis_per_block * i,
-			     sizeof(double) * (vis_per_block+leftovers), cudaMemcpyDefault));
-  cudaError_check(cudaMemcpy((vis_bins+i)->w, vis->w + vis_per_block * i,
-			     sizeof(double) * (vis_per_block+leftovers), cudaMemcpyDefault));
-  cudaError_check(cudaMemcpy((vis_bins+i)->vis, vis->vis + vis_per_block * i,
-			     sizeof(double _Complex) * (vis_per_block+leftovers), cudaMemcpyDefault));
-   (vis_bins+i)->number_of_vis = vis_per_block + leftovers;
-
+      
+      // cudaError_check(cudaMemcpy((vis_bins+i)->u, vis->u + vis_per_block * i,
+      // 				 sizeof(double) * (vis_per_block+leftovers), cudaMemcpyDefault));
+      // cudaError_check(cudaMemcpy((vis_bins+i)->v, vis->v + vis_per_block * i,
+      // 				 sizeof(double) * (vis_per_block+leftovers), cudaMemcpyDefault));
+      // cudaError_check(cudaMemcpy((vis_bins+i)->w, vis->w + vis_per_block * i,
+      // 			     sizeof(double) * (vis_per_block+leftovers), cudaMemcpyDefault));
+      // cudaError_check(cudaMemcpy((vis_bins+i)->vis, vis->vis + vis_per_block * i,
+      // 			     sizeof(double _Complex) * (vis_per_block+leftovers), cudaMemcpyDefault));
+   
+  }
+  vis_bins[i].number_of_vis = vis_per_block + leftovers;
   
 }
 
